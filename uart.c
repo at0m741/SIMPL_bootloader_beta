@@ -14,26 +14,6 @@ void uart_write_string(const char *str) {
 }
 
 
-void uart_write_hex(unsigned long value) {
-    char buffer[17];
-    buffer[16] = '\0';
-
-    uart_write_string("Debug: Starting hex conversion\n");
-
-    for (int i = 15; i >= 0; i--) {
-        int digit = value & 0xF;  
-        buffer[i] = digit < 10 ? '0' + digit : 'A' + (digit - 10); 
-        value >>= 4; 
-    }
-
-    uart_write_string("Debug: Hex conversion complete\n");
-    uart_write_string("0x");
-    uart_write_string(buffer);    // Afficher la valeur convertie
-    uart_write_string("\n");
-}
-
-
-
 #define PAGE_SIZE       64   
 #define NUM_ENTRIES     16 
 #define TABLE_ALIGN     64 
@@ -130,4 +110,42 @@ int mmu() {
     uart_write_string("Memory write successful\n");
 
     return 0;
+}
+
+void uart_print_char(char c) {
+	volatile uint32_t *uart_tx = (volatile uint32_t *)(UART_BASE);
+	volatile uint32_t *uart_flags = (volatile uint32_t *)(UART_BASE + 0x18);
+
+	while (*uart_flags & (1 << 5)) {
+	}
+	*uart_tx = c;
+}
+
+void print_address(uint64_t addr) {
+	uart_write_string("0x");
+
+	for (int i = 60; i >= 0; i -= 4) {
+		uint8_t nibble = (addr >> i) & 0xF;
+		if (nibble < 10) {
+			uart_print_char('0' + nibble);
+		} else {
+			uart_print_char('A' + nibble - 10);
+		}
+	}
+	uart_write_string("\n");
+}
+ 
+void check_execution_mode() {
+    uint64_t current_el;
+    asm volatile("mrs %0, CurrentEL" : "=r"(current_el));
+
+    uint64_t el = (current_el >> 2) & 0x3;
+
+    if (el == 0) {
+        uart_write_string("Running in AArch32 mode\n");
+    } else if (el >= 1 && el <= 3) {
+        uart_write_string("Running in AArch64 mode\n");
+    } else {
+        uart_write_string("Unknown execution mode\n");
+    }
 }
