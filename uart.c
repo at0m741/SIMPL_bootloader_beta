@@ -1,38 +1,105 @@
 #include <stdint.h>
-
-#define UART_BASE 0x09000000
-
-void uart_write_string(const char *str) {
-    volatile uint32_t *uart_tx = (volatile uint32_t *)(UART_BASE);
-    volatile uint32_t *uart_flags = (volatile uint32_t *)(UART_BASE + 0x18);
-
-    while (*str) {
-        while (*uart_flags & (1 << 5)) {
-        }
-        *uart_tx = *str++;
-    }
-}
-
-
-#define PAGE_SIZE       64   
-#define NUM_ENTRIES     16 
-#define TABLE_ALIGN     64 
-#define MEM_ATTR_INDEX  0   
-
-#define MMU_DESC_VALID      (1ULL << 0) 
-#define MMU_DESC_TABLE      (1ULL << 1) 
-#define MMU_DESC_BLOCK      (0ULL << 1) 
-#define MMU_DESC_AF         (1ULL << 10) 
-#define MMU_DESC_RW         (0ULL << 6)  
-#define MMU_DESC_RO         (1ULL << 6) 
-#define MMU_DESC_NS         (1ULL << 5) 
-#define MMU_DESC_XN         (1ULL << 54) 
-
-#define MAIR_ATTR_NORMAL    0xFF      
+#include "uart.h"
+#include "mmu.h"
 
 __attribute__((aligned(TABLE_ALIGN))) uint64_t level1_table[NUM_ENTRIES];
 __attribute__((aligned(TABLE_ALIGN))) uint64_t level2_table[NUM_ENTRIES];
 __attribute__((aligned(TABLE_ALIGN))) uint64_t level3_table[NUM_ENTRIES];
+typedef unsigned long size_t;
+
+
+int strcmp(const char *s1, const char *s2) {
+	while (*s1 && *s1 == *s2) {
+		s1++;
+		s2++;
+	}
+	return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+}
+
+void uart_write_string(const char *str) {
+    volatile uint32_t *uart_dr = (volatile uint32_t *)UART_DR;
+    volatile uint32_t *uart_fr = (volatile uint32_t *)UART_FR;
+
+    while (*str) {
+        while (*uart_fr & (1 << 5)) {
+        }
+        *uart_dr = *str++;
+    }
+}
+
+void uart_print_hex(uint32_t value) {
+    char hex_chars[] = "0123456789ABCDEF";
+    char buffer[9]; 
+    buffer[8] = '\0';
+    for (int i = 7; i >= 0; i--) {
+        buffer[i] = hex_chars[value & 0xF];
+        value >>= 4;
+    }
+    uart_write_string(buffer);
+}
+
+void uart_init(void) {
+    volatile uint32_t *uart_cr = (volatile uint32_t *)UART_CR;
+    volatile uint32_t *uart_ibrd = (volatile uint32_t *)UART_IBRD;
+    volatile uint32_t *uart_fbrd = (volatile uint32_t *)UART_FBRD;
+    volatile uint32_t *uart_lcrh = (volatile uint32_t *)UART_LCR_H;
+    volatile uint32_t *uart_icr = (volatile uint32_t *)UART_ICR;
+
+    *uart_cr = 0x0;
+
+    *uart_icr = 0x7FF;
+
+    *uart_ibrd = 1;  
+    *uart_fbrd = 40;
+    *uart_lcrh = (3 << 5) | (1 << 4); 
+    *uart_cr = (1 << 0) | (1 << 8) | (1 << 9);
+	uart_write_string("[DEBUG]: UART initialized\n");
+}
+
+
+void enable_interrupts() {
+    asm volatile("msr daifclr, #2"); 
+}
+
+
+void uart_enable_interrupts() {
+    volatile uint32_t *uart_imsc = (volatile uint32_t *)UART_IMSC;
+
+    *uart_imsc |= UART_IMSC_RXIM;
+}
+
+
+
+void uart_irq_handler() {
+    volatile uint32_t *uart_mis = (volatile uint32_t *)UART_MIS;
+    volatile uint32_t *uart_icr = (volatile uint32_t *)UART_ICR;
+    volatile uint32_t *uart_rx = (volatile uint32_t *)UART_BASE;
+
+    if (*uart_mis & UART_MIS_RXMIS) {
+        char c = (char)(*uart_rx & 0xFF); 
+        uart_write_string("Received via IRQ: ");
+        uart_write_string(&c);
+        uart_write_string("\n");
+
+        *uart_icr |= UART_MIS_RXMIS;
+    }
+}
+
+
+
+void gic_enable_uart_irq() {
+    volatile uint32_t *gicd_isenabler = (volatile uint32_t *)(GICD_ISENABLER + (UART_IRQ / 32) * 4);
+
+    *gicd_isenabler |= (1 << (UART_IRQ % 32));
+}
+
+char uart_read_char(void) {
+    volatile uint32_t *uart_rx = (volatile uint32_t *)(UART_BASE);
+    volatile uint32_t *uart_flags = (volatile uint32_t *)(UART_BASE + 0x18);
+
+    while (*uart_flags & (1 << 4)) {}
+    return (char)(*uart_rx & 0xFF);
+}
 
 
 
@@ -40,9 +107,9 @@ void setup_page_tables() {
     for (int i = 0; i < NUM_ENTRIES; i++) {
         level1_table[i] = ((uint64_t)&level2_table) | MMU_DESC_TABLE | MMU_DESC_VALID;
         level2_table[i] = (i * 0x200000) | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_RW | MMU_DESC_VALID;
-		uart_write_string("Page tables set\n");
+		uart_write_string("[MEMORY]: Page tables set\n");
 	}
-	uart_write_string("Page tables done\n");
+	uart_write_string("[DEBUG]: Page tables done\n");
 }
 
 void setup_mair() {
@@ -66,10 +133,7 @@ void enable_mmu() {
     uint64_t sctlr;
     asm volatile ("mrs %0, sctlr_el1\n" : "=r"(sctlr));
     sctlr |= (1 << 0);           
-	uart_write_string("sctlr set\n");
-	/*     asm volatile ("msr sctlr_el1, %0\n" : : "r"(sctlr)); */
-	/* uart_write_string("sctlr set\n"); */
-	/*     asm volatile ("isb\n"); */
+	uart_write_string("[DEBUG]: sctlr set\n");
 }
 
 void setup_tcr() {
@@ -80,7 +144,7 @@ void setup_tcr() {
     tcr_value |= (3ULL << 12);
     tcr_value |= (1ULL << 10); 
     tcr_value |= (1ULL << 8); 
-	uart_write_string("TCR set\n");
+	uart_write_string("[DEBUG]: TCR set\n");
     asm volatile (
         "msr tcr_el1, %0\n"
         "isb\n"
@@ -88,26 +152,25 @@ void setup_tcr() {
     );
 }
 
-
 int mmu() {
-    uart_write_string("Setting up MAIR\n");
+    uart_write_string("[DEBUG]: Setting up MAIR\n");
     setup_mair();
-	uart_write_string("MAIR set\n");
-    uart_write_string("Setting up page tables\n");
+	uart_write_string("[DEBUG]: MAIR set\n");
+    uart_write_string("[DEBUG]: Setting up page tables\n");
     setup_page_tables();
-    uart_write_string("Setting up TCR\n");
+    uart_write_string("[DEBUG]: Setting up TCR\n");
     setup_tcr();
 
-    uart_write_string("Setting up TTBR0\n");
+    uart_write_string("[DEBUG]: Setting up TTBR0\n");
     setup_ttbr(level1_table);
-	uart_write_string("TTBR0 set\n");
-    uart_write_string("Enabling MMU\n");
+	uart_write_string("[DEBUG]: TTBR0 set\n");
+    uart_write_string("[DEBUG]: Enabling MMU\n");
     enable_mmu();
-    uart_write_string("MMU enabled\n");
+    uart_write_string("[DEBUG]: MMU enabled\n");
 
     volatile uint64_t *ptr = (uint64_t *)0x400000;
     *ptr = 0xDEADBEEF;
-    uart_write_string("Memory write successful\n");
+    uart_write_string("[DEBUG]: Memory write successful\n");
 
     return 0;
 }
@@ -120,6 +183,23 @@ void uart_print_char(char c) {
 	}
 	*uart_tx = c;
 }
+
+void uart_read_string(char *buffer, size_t max_len) {
+    char c;
+    size_t i = 0;
+
+    while (1) {
+        c = uart_read_char();
+        if (c == '\n' || c == '\r') {
+            break;
+        }
+        if (i < max_len - 1) {
+            buffer[i++] = c;
+        }
+    }
+    buffer[i] = '\0';
+}
+
 
 void print_address(uint64_t addr) {
 	uart_write_string("0x");
@@ -142,10 +222,86 @@ void check_execution_mode() {
     uint64_t el = (current_el >> 2) & 0x3;
 
     if (el == 0) {
-        uart_write_string("Running in AArch32 mode\n");
+        uart_write_string("[DEBUG]: Running in AArch32 mode\n");
     } else if (el >= 1 && el <= 3) {
-        uart_write_string("Running in AArch64 mode\n");
+        uart_write_string("[DEBUG]: Running in AArch64 mode\n");
     } else {
-        uart_write_string("Unknown execution mode\n");
+        uart_write_string("[DEBUG]: Unknown execution mode\n");
     }
 }
+
+
+void check_pstate_mode() {
+    uint64_t current_el;
+    asm volatile("mrs %0, CurrentEL" : "=r"(current_el));
+
+    uint64_t el = (current_el >> 2) & 0x3;
+
+    if (el == 0) {
+        uart_write_string("[DEBUG]: Running at EL0\n");
+    } else if (el == 1) {
+        uart_write_string("[DEBUG]: Running at EL1\n");
+    } else if (el == 2) {
+        uart_write_string("[DEBUG]: Running at EL2\n");
+    } else if (el == 3) {
+        uart_write_string("[DEBUG]: Running at EL3\n");
+    } else {
+        uart_write_string("[DEBUG]: Unknown Exception Level\n");
+    }
+
+    uint64_t pstate;
+    asm volatile("mrs %0, DAIF" : "=r"(pstate));
+    uart_write_string("[DEBUG]: Running in AArch64 mode\n");
+}
+
+
+
+void get_register_size() {
+    uint64_t current_el;
+    asm volatile("mrs %0, CurrentEL" : "=r"(current_el));
+    uint64_t el = (current_el >> 2) & 0x3;
+
+    if (el >= 0 && el <= 3) {
+        uart_write_string("[DEBUG]: 64-bit general-purpose registers\n");
+    } else {
+        uart_write_string("[DEBUG]: Unknown register size\n");
+    }
+	check_execution_mode();
+}
+
+
+
+
+void SIMPL_BOOT_TAG() {
+	uart_write_string("\n========================================\n");	
+	uart_write_string("::                                      \n");
+	uart_write_string("::  SupervisorBoot for Cortex-A53, Copyright SIMPL 2014\n");
+	uart_write_string("::                                     \n");
+	uart_write_string("::       BUILD_TAG:  SIMPL_Boot-0.1b1   \n");
+	uart_write_string("::                                      \n");
+	uart_write_string("::       BUILD_STYLE:  DEBUG            \n");
+	uart_write_string("::                                      \n");
+	uart_write_string("::       SERIAL:  0x0000000000000000    \n");
+	uart_write_string("::                                      \n");
+	uart_write_string("========================================\n");
+	uart_write_string("\n");
+}	
+
+
+
+void uart_prompt() {
+    char buffer[1024];
+
+    uart_write_string("SIMPL_boot> ");
+    while (1) {
+        uart_read_string(buffer, sizeof(buffer)); 
+        uart_write_string("\n[DEBUG]: Received: ");
+        uart_write_string(buffer);
+		if (strcmp(buffer, "mmu") == 0) {
+			uart_write_string("[DEBUG]: Setting up MMU\n");
+		}
+        uart_write_string("\nSIMPL_boot> ");
+    }
+}
+
+
