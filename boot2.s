@@ -1,81 +1,106 @@
 .section .text
 .global _start
+.extern uart_init
 .extern uart_write_string
+.extern uart_prompt
+.extern test_stack_usage
 .extern check_execution_mode
 .extern print_address
-.extern mmu
-.extern uart_init
-.extern get_register_size
-.extern set_aarch64_mode
 .extern SIMPL_BOOT_TAG
 .extern enable_interrupts
 .extern uart_enable_interrupts
 .extern gic_enable_uart_irq
-.extern uart_prompt
-.extern uart_dump_registers
-.extern test_stack_usage
-.equ UART_BASE, 0x09000000
+.extern get_register_size
+.extern mmu
+
+.equ MMU_DESC_VALID, (1 << 0)
+.equ MMU_DESC_TABLE, (1 << 1)
+.equ MMU_DESC_BLOCK, (0 << 1)
+.equ MMU_DESC_AF, (1 << 10)
+.equ MMU_DESC_SH_INNER, (3 << 8)
+.equ MMU_DESC_AP_RW, (0 << 6)
+.equ MMU_DESC_ATTRIDX_MEM, (0 << 2)
+.equ MMU_DESC_PXN, (1 << 53)
+.equ MMU_DESC_UXN, (1 << 54)
 
 _start:
     ldr x0, =0x80050000
-    mov sp, x0
-	bl uart_init
-	b jump_mmu
+    bic x0, x0, #0xF
+	ldr x3, =sp_addr_message
+	bl uart_write_string
+	mov sp, x0
+	bl print_address
+    bl uart_init
+    bl test_stack_usage
+    bl setup_page_tables
+    bl enable_mmu
+    b main_loop
 
-jump_mmu:
-    bl mmu                   
+main_loop:
+	ldr x0, =sp_addr_message
+	bl uart_write_string
+	bl print_address
     ldr x0, =mmu_message
     bl uart_write_string
-	bl check_execution_mode
 	bl SIMPL_BOOT_TAG
-	ldr x0, =stack_ptr
-	bl uart_write_string
-	mov x0, sp
-	bl print_address
-	mov x0,  #(1 << 10)
-	orr x0, x0, #(1 << 8)
-	orr x0, x0, #(1 << 0)
+	bl check_execution_mode
 	bl get_register_size
-	ldr x0, =prompt_test_message
-	bl uart_write_string
-	b init_interrupt
+    bl uart_prompt
+    b hang
 
-
-init_interrupt:
-	bl uart_enable_interrupts   
-	bl gic_enable_uart_irq  
-	bl enable_interrupts       
-	ldr x0, =interrupt_message
-	bl uart_write_string
-	b init_prompt
-
-init_prompt:
-	bl test_stack_usage
-	msr daifset, #2
-	bl uart_prompt
-	ret
 hang:
     b hang
 
+setup_page_tables:
+    ldr x0, =level1_table
+    adrp x1, level2_table
+    add x1, x1, :lo12:level2_table
+    lsr x2, x1, #12
+    lsl x2, x2, #12
+    orr x2, x2, #(MMU_DESC_VALID | MMU_DESC_TABLE)
+    str x2, [x0]
+    ret
 
+enable_mmu:
+    adrp x0, mair_value
+    add x0, x0, :lo12:mair_value
+    msr mair_el1, x0
+    ret
 
-
+uart_print_hex:
+    stp x1, x2, [sp, #-16]!
+    mov x1, #16
+    ldr x2, =hex_chars
+    sub sp, sp, #17
+    mov x3, sp
+1:
+    subs x1, x1, #1
+    and x4, x0, #0xF
+    add x5, x2, x4
+    ldrb w6, [x5]
+    strb w6, [x3, x1]
+    lsr x0, x0, #4
+    cbnz x1, 1b
+    mov x0, sp
+    bl uart_write_string
+    add sp, sp, #17
+    ldp x1, x2, [sp], #16
+    ret
 
 .section .data
-message:
-	.asciz "SIMPL Bootloader\n"
-stack_ptr:
-	.asciz "[DEBUG]: Start address :"
 mmu_message:
-	.asciz "[DEBUG]: MMU setup complete.\n"
+    .asciz "[DEBUG]: MMU setup complete.\n"
+hex_chars:
+    .asciz "0123456789ABCDEF"
+mair_value:
+    .quad 0x00000000004404FF
 
-prompt_test_message:
-	.asciz "[DEBUG]: Testing UART\n"
-prompt_test_message_before:
-    .asciz "[DEBUG]: Before uart_prompt\n\n"
-prompt_test_message_after:
-    .asciz "SIMPL_boot>"
-interrupt_message:
-    .asciz "[DEBUG]: Interrupts initialized and ready.\n"
-err_uart:
-	.asciz "\n[ERROR]: prompt failed\n"
+sp_addr_message:
+	.asciz "[DEBUG]: Stack address: "
+
+.section .bss
+.align 12
+level1_table:
+    .skip 4096
+level2_table:
+    .skip 4096
