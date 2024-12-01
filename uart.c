@@ -51,7 +51,8 @@ void uart_init(void) {
 
     *uart_ibrd = 1;  
     *uart_fbrd = 40;
-    *uart_lcrh = (3 << 5) | (1 << 4); 
+    *uart_lcrh = (3 << 5) | (1 << 4);
+	uart_write_string("[DEBUG]: debug ??n");
     *uart_cr = (1 << 0) | (1 << 8) | (1 << 9);
 	uart_write_string("[DEBUG]: UART initialized\n");
 }
@@ -287,21 +288,84 @@ void SIMPL_BOOT_TAG() {
 	uart_write_string("\n");
 }	
 
+void memory_dump_hex(uint64_t addr, size_t size) {
+	for (size_t i = 0; i < size; i += 16) {
+		uart_write_string("0x");
+		uart_print_hex(addr + i);
+		uart_write_string(": ");
+		for (size_t j = 0; j < 16; j++) {
+			uart_print_hex(*((uint8_t *)(addr + i + j)));
+			uart_write_string(" ");
+		}
+		uart_write_string("\n");
+	}
+}
 
+long strtol(const char *nptr, char **endptr, int base) {
+	long res = 0;
+	int sign = 1;
+	if (*nptr == '-') {
+		sign = -1;
+		nptr++;
+	}
+	while (*nptr) {
+		char c = *nptr;
+		int digit;
+		if (c >= '0' && c <= '9') {
+			digit = c - '0';
+		} else if (c >= 'a' && c <= 'z') {
+			digit = c - 'a' + 10;
+		} else if (c >= 'A' && c <= 'Z') {
+			digit = c - 'A' + 10;
+		} else {
+			break;
+		}
+		if (digit >= base) {
+			break;
+		}
+		res = res * base + digit;
+		nptr++;
+	}
+	if (endptr) {
+		*endptr = (char *)nptr;
+	}
+	return res * sign;
+}
+
+void process_uart_command(const char *cmd) {
+    if (strcmp(cmd, "help") == 0) {
+        uart_write_string("Available commands:\n");
+        uart_write_string("  help       - Show this help message\n");
+        uart_write_string("  dump ADDR  - Dump memory from ADDR\n");
+        uart_write_string("  reset      - Reset the system\n");
+    } else if (strcmp(cmd, "dump") == 0) {
+        uint64_t addr = strtol(cmd + 5, 0, 16);
+        memory_dump_hex(addr, 64); // Affiche 64 octets
+    } else if (strcmp(cmd, "reset") == 0) {
+        asm volatile ("b _start");
+    } else {
+        uart_write_string("Unknown command\n");
+    }
+}
 
 void uart_prompt() {
-    char buffer[1024];
-
-    uart_write_string("SIMPL_boot> ");
-    while (1) {
-        uart_read_string(buffer, sizeof(buffer)); 
-        uart_write_string("\n[DEBUG]: Received: ");
-        uart_write_string(buffer);
-		if (strcmp(buffer, "mmu") == 0) {
-			uart_write_string("[DEBUG]: Setting up MMU\n");
+	uart_write_string("SIMPL_Boot> ");
+	char cmd[64];
+	for (size_t i = 0; i < sizeof(cmd) - 1; i++) {
+		cmd[i] = uart_read_char();
+		uart_print_char(cmd[i]);
+		if (cmd[i] == '\r' || cmd[i] == '\n') {
+			cmd[i] = '\0';
+			break;
 		}
-        uart_write_string("\nSIMPL_boot> ");
-    }
+	}
+}
+
+void test_stack_usage() {
+	uint64_t sp;
+    uint64_t test_value = 0xDEADBEEF;
+    asm volatile("str %0, [%1]" : : "r"(test_value), "r"(sp));
+    uart_write_string("[DEBUG]: Wrote to stack\n");
 }
 
 

@@ -13,14 +13,13 @@
 .extern gic_enable_uart_irq
 .extern uart_prompt
 .extern uart_dump_registers
+.extern test_stack_usage
 .equ UART_BASE, 0x09000000
 
 _start:
-    ldr x0, =0x80040000
+    ldr x0, =0x80050000
     mov sp, x0
 	bl uart_init
-    ldr x0, =message       
-    bl uart_write_string 
 	b jump_mmu
 
 jump_mmu:
@@ -31,7 +30,7 @@ jump_mmu:
 	bl SIMPL_BOOT_TAG
 	ldr x0, =stack_ptr
 	bl uart_write_string
-	mov x0, #0x80040000
+	mov x0, sp
 	bl print_address
 	mov x0,  #(1 << 10)
 	orr x0, x0, #(1 << 8)
@@ -51,17 +50,16 @@ init_interrupt:
 	b init_prompt
 
 init_prompt:
-	ldr x0, =prompt_test_message_after
-	bl uart_write_string
-	b.eq uart_prompt_inter
-	ldr x0, =err_uart
-	bl uart_write_string
-
-uart_prompt_inter:
+	bl test_stack_usage
+	msr daifset, #2
 	bl uart_prompt
-	b hang
+	ret
 hang:
     b hang
+
+
+
+
 
 .section .data
 message:
