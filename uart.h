@@ -19,4 +19,8 @@
 #define GICD_BASE 0x2f000000         
 #define GICD_ISENABLER (GICD_BASE + 0x100) 
 #define UART_IRQ 33
+
+int strcmp(const char *s1, const char *s2);
+long strtol(const char *nptr, char **endptr, int base);
+
 #endif /* UART_H */

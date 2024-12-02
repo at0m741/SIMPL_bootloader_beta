@@ -25,6 +25,8 @@ void uart_write_string(const char *str) {
         }
         *uart_dr = *str++;
     }
+	for (int i = 0; i < 100000; i++) {
+	}
 }
 
 void uart_print_hex(uint32_t value) {
@@ -133,6 +135,7 @@ void uart_read_string(char *buffer, size_t max_len) {
 
 
 void print_address(uint64_t addr) {
+	uart_write_string("[DEBUG]: Address: ");
 	uart_write_string("0x");
 
 	for (int i = 60; i >= 0; i -= 4) {
@@ -262,12 +265,6 @@ long strtol(const char *nptr, char **endptr, int base) {
 	return res * sign;
 }
 
-
-int process_command(const char *command) {
-	(void)command;
-	return 0;
-}
-
 void uart_write_char(char c) {
 	volatile uint32_t *uart_dr = (volatile uint32_t *)UART_DR;
 	volatile uint32_t *uart_fr = (volatile uint32_t *)UART_FR;
@@ -277,39 +274,63 @@ void uart_write_char(char c) {
 	*uart_dr = c;
 }
 
+void write_string(const char *str) {
+    while (*str) {
+        uart_write_char(*str++);
+    }
+}
+
+
+inline void process_command(const char *command) {
+    write_string("[DEBUG]: Processing command...\n");
+	if (command[0] == '1') {	
+		write_string("[DEBUG]: Running SIMPL_BOOT_TAG...\n");
+	}
+    write_string("[ERROR]: Unknown command.\n");
+	write_string("[DEBUG]: Command processing complete.\n");
+}
+
+
+
 void uart_prompt() {
     char buffer[1024];
     int index = 0;
 
     uart_write_string("SIMPL_Boot> ");
-
     while (1) {
-        char c = uart_read_char(); 
+        char c = uart_read_char();
 
         if (c == '\n' || c == '\r') {
             buffer[index] = '\0'; 
-            uart_write_string("\n"); 
+            uart_write_string("\n");
 
+            if (index > 0) { 
+                uart_write_string("[DEBUG]: Calling process_command...\n");
+
+			}
             index = 0;
             uart_write_string("SIMPL_Boot> ");
             continue;
         }
 
-		
-		if (c == '\b' || c == 127) {
+        if (c == '\b' || c == 127) {
             if (index > 0) {
                 index--;
-                uart_write_string("\b \b"); 
+                uart_write_string("\b \b");
             }
             continue;
         }
 
         if (index < sizeof(buffer) - 1) {
             buffer[index++] = c;
-            uart_write_char(c); 
+            uart_write_char(c);
         }
     }
 }
+
+
+
+
 
 void test_stack_usage() {
 	uint64_t sp;
