@@ -4,7 +4,6 @@ LD = aarch64-elf-ld
 OBJCOPY = aarch64-elf-objcopy
 QEMU = qemu-system-aarch64
 
-# Options de compilation
 CFLAGS = -O2 -ffreestanding -nostdlib -g
 LDFLAGS = -Ttext=0x0
 ASFLAGS = 
