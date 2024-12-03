@@ -35,7 +35,7 @@ $(BIN): $(ELF)
 	$(OBJCOPY) $(OBJCOPY_FLAGS) $< $@
 
 run: $(BIN)
-	$(QEMU) $(QEMU_FLAGS) $<
+	$(QEMU) $(QEMU_FLAGS) $< -d exec,cpu,unimp,int
 
 clean:
 	rm -f $(ASM_OBJ) $(C_OBJ) $(ELF) $(BIN)
