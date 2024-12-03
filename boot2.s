@@ -12,6 +12,7 @@
 	.extern gic_enable_uart_irq
 	.extern get_register_size
 	.extern mmu
+	.extern print_register
 	.extern check_pstate_mode
 	.equ MMU_DESC_VALID, (1 << 0)
 	.equ MMU_DESC_TABLE, (1 << 1)
@@ -44,7 +45,6 @@ _start:
 	bl uart_write_string
 	ldr x0, =timer_message
 	bl uart_write_string
-
 	bl uart_init
 	ldr x0, =uart_message_init
 	bl uart_write_string
@@ -71,6 +71,7 @@ _start:
 	bl uart_write_string
 
 	bl enable_mmu
+
 	mov x0, #0
 	bl _check_error
 
@@ -189,7 +190,7 @@ enable_mmu:
 	isb
 	ldr x0, =ttbr_message
 	bl uart_write_string
-	ldr x0, =0xFF
+	ldr x0, =mair_value
 	msr MAIR_EL1, x0
 	bl print_address
 	dsb sy
@@ -210,21 +211,27 @@ enable_mmu:
 	bl print_address
 	orr x0, x0, (1 << 4)
 	bl print_address
+	orr x0, x0, (1 << 2)
+	bl print_address
 	mov x1, x0
 	bl print_address
 	msr SCTLR_EL1, x0
 	bl print_address
 	isb
+
 	ldr x0, =sctlr_message
 	bl uart_write_string
 	mrs x0, SCTLR_EL1
 	mov x1, x0
-
 	bl print_address
 	ldr x0, =uart_message_mmu_enabled
 	bl print_address
 	bl check_pstate_mode
 	bl uart_write_string
+	ldr x0, =sp_addr_message
+	bl uart_write_string
+	mov sp, sp
+	bl print_register
 	bl uart_prompt
 	ret
 
@@ -316,7 +323,8 @@ vectors:
 	b reset_prompt
 
 
-	.section .data
+	
+.section .data
 
 hex_chars:
 	.asciz "0123456789ABCDEF"
@@ -343,7 +351,7 @@ error_message:
 help_message:
 	.asciz "[INFO]: Available commands:\n  - help: Show available commands\n"
 sp_addr_message:
-	.asciz "[DEBUG]: Stack address: "
+	.asciz "[DEBUG]: SP = "
 uart_message_init:
 	.asciz "[UART]: Initialized.\n"
 ttbr_message:
@@ -358,7 +366,8 @@ uart_message_page_setup:
 	.asciz "[MMU]: Page tables setup complete.\n"
 uart_message_mmu_enabled:
 	.asciz "[MMU]: Enabled.\n"
-
+sp_message:
+	.asciz "[DEBUG]: sp = " 
 newline:
 	.asciz "\n"
 uart_message_el0: .asciz "[EL]: In EL0\n"

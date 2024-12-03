@@ -148,7 +148,21 @@ void print_address(uint64_t addr) {
 	}
 	uart_write_string("\n");
 }
- 
+
+void print_register(uint64_t addr) {
+	uart_write_string("0x");
+
+	for (int i = 60; i >= 0; i -= 4) {
+		uint8_t nibble = (addr >> i) & 0xF;
+		if (nibble < 10) {
+			uart_print_char('0' + nibble);
+		} else {
+			uart_print_char('A' + nibble - 10);
+		}
+	}
+	uart_write_string("\n");
+}
+
 void check_execution_mode() {
     uint64_t current_el;
     asm volatile("mrs %0, CurrentEL" : "=r"(current_el));
@@ -185,9 +199,6 @@ void check_pstate_mode() {
         uart_write_string("[DEBUG]: Unknown Exception Level\n");
     }
 
-    uint64_t pstate;
-    asm volatile("mrs %0, DAIF" : "=r"(pstate));
-    uart_write_string("[DEBUG]: Running in AArch64 mode\n");
 }
 
 
