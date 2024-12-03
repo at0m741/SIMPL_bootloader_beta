@@ -12,7 +12,7 @@
 	.extern gic_enable_uart_irq
 	.extern get_register_size
 	.extern mmu
-
+	.extern check_pstate_mode
 	.equ MMU_DESC_VALID, (1 << 0)
 	.equ MMU_DESC_TABLE, (1 << 1)
 	.equ MMU_DESC_BLOCK, (0 << 1)
@@ -50,7 +50,7 @@ _start:
 	bl uart_write_string
 	bl get_register_size
 	bl ensure_el1
-
+	bl check_pstate_mode
 	adr x0, vectors
 	msr VBAR_EL1, x0
 	bl print_address
@@ -222,6 +222,8 @@ enable_mmu:
 
 	bl print_address
 	ldr x0, =uart_message_mmu_enabled
+	bl print_address
+	bl check_pstate_mode
 	bl uart_write_string
 	bl uart_prompt
 	ret

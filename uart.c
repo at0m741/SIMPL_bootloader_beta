@@ -173,6 +173,8 @@ void check_pstate_mode() {
 
     if (el == 0) {
         uart_write_string("[DEBUG]: Running at EL0\n");
+		el >>= 2;
+		check_pstate_mode();
     } else if (el == 1) {
         uart_write_string("[DEBUG]: Running at EL1\n");
     } else if (el == 2) {
@@ -204,16 +206,18 @@ void get_register_size() {
 }
 
 
-
+#ifndef REAL_BUILD_DATE
+#define REAL_BUILD_DATE "Unknown Date"
+#endif
 
 void SIMPL_BOOT_TAG() {
 	uart_write_string("\n========================================\n");	
 	uart_write_string("::                                      \n");
-	uart_write_string("::  SupervisorBoot for Cortex-A53, Copyright SIMPL 2014\n");
+	uart_write_string("::  SIMPL_Boot for Cortex-A53, Copyright SIMPL 2024\n");
 	uart_write_string("::                                     \n");
-	uart_write_string("::       BUILD_TAG:  SIMPL_Boot-0.1b1   \n");
+    uart_write_string("::       BUILD_TAG:  SIMPL_Boot-0.1b1   \n");
 	uart_write_string("::                                      \n");
-	uart_write_string("::       BUILD_STYLE:  DEBUG            \n");
+	uart_write_string("::       BUILD_STYLE:  DEBUG ("REAL_BUILD_DATE")          \n");
 	uart_write_string("::                                      \n");
 	uart_write_string("::       SERIAL:  0x0000000000000000    \n");
 	uart_write_string("::                                      \n");

@@ -6,9 +6,13 @@ QEMU = qemu-system-aarch64
 
 CFLAGS = -O2 -ffreestanding -nostdlib -g
 LDFLAGS = -Ttext=0x0
+DATE := $(shell date +"%b %d %Y %H:%M:%S")
+
+CFLAGS += -DREAL_BUILD_DATE="\"$(DATE)\""
+
 ASFLAGS = 
 OBJCOPY_FLAGS = -O binary
-QEMU_FLAGS = -M virt -cpu cortex-a53 -nographic -serial stdio -monitor none -bios
+QEMU_FLAGS = -M virt -machine secure=off -cpu cortex-a53 -nographic -serial stdio -monitor none -bios
 
 TARGET = boot
 ASM_SRC = boot2.s
@@ -34,7 +38,7 @@ $(BIN): $(ELF)
 	$(OBJCOPY) $(OBJCOPY_FLAGS) $< $@
 
 run: $(BIN)
-	$(QEMU) $(QEMU_FLAGS) $< -d exec,cpu,unimp,int
+	$(QEMU) $(QEMU_FLAGS) $< -d exec,cpu,unimp,int -D qemu.log
 
 clean:
 	rm -f $(ASM_OBJ) $(C_OBJ) $(ELF) $(BIN)
