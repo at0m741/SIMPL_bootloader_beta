@@ -348,10 +348,16 @@ void uart_prompt() {
 
 
 void test_stack_usage() {
-	uint64_t sp;
-    uint64_t test_value = 0xDEADBEEF;
-    asm volatile("str %0, [%1]" : : "r"(test_value), "r"(sp));
-    uart_write_string("[DEBUG]: Wrote to stack\n");
+	volatile uint32_t *virt_addr = (uint32_t *)0x400000;
+	volatile uint32_t *phys_addr = (uint32_t *)0x100000;
+
+	*virt_addr = 0x12345678;
+
+	if (*phys_addr == 0x100000) {
+		uart_write_string("MMU fonctionne : Mapping virtuel OK\n");
+	} else {
+		uart_write_string("Erreur : Pas de correspondance mémoire\n");
+	}
 }
 
 void uart_print_debug(const char *label, uint64_t value) {

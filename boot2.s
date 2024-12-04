@@ -1,26 +1,26 @@
 /*
-	SIMPL Bootloader - startup code (boot.S)
-	Author: @at0m741
-
-	!!! This code is just a Poc, use at your own risk !!!
-
-	This is the startup code for the SIMPL Bootloader. This code is
-	used to initialize the hardware and set up the environment for
-	    - Stack initialization (at 0x80040000)
-		- UART initialization  (following the ARM PrimeCell UART PL011)
-		- Page table setup		 (setting up the page tables for the MMU)
-		- MMU initialization   (setting up the page tables and enabling the MMU)
-		- Timer initialization (setting up the timer and enabling it)
-		- Interrupt initialization (enabling the UART interrupt)
-		- EL initialization		 (ensuring that the program is running in EL1)
+	; SIMPL Bootloader - startup code (boot.S)
+	; Author: @at0m741
+	;
+	; !!! This code is just a Poc, use at your own risk !!!
+	;
+	; This is the startup code for the SIMPL Bootloader. This code is
+	; used to initialize the hardware and set up the environment for
+	;     - Stack initialization (at 0x80040000)
+	; 	- UART initialization  (following the ARM PrimeCell UART PL011)
+	; 	- Page table setup		 (setting up the page tables for the MMU)
+	; 	- MMU initialization   (setting up the page tables and enabling the MMU)
+	; 	- Timer initialization (setting up the timer and enabling it)
+	; 	- Interrupt initialization (enabling the UART interrupt)
+	; 	- EL initialization		 (ensuring that the program is running in EL1)
 */
 	.section .text
 	.global _start
 
 /* 
-	This section contains the code that is used
-	to initialize the hardware and set up the environment
-	(C code functions, etc.)
+	; This section contains the code that is used
+	; to initialize the hardware and set up the environment
+	; (C code functions, etc.)
 */
 
 	.extern uart_init
@@ -39,8 +39,8 @@
 	.extern check_pstate_mode
 
 /*
-	These are the constants that are used in the program
-	(defined as equates) ==> MMU constants (MMU_DESC_*)
+	; These are the constants that are used in the program
+	; (defined as equates) ==> MMU constants (MMU_DESC_*)
 */
 
 	.equ MMU_DESC_VALID, (1 << 0)
@@ -52,21 +52,30 @@
 	.equ MMU_DESC_ATTRIDX_MEM, (0 << 2)
 	.equ MMU_DESC_PXN, (1 << 53)
 	.equ MMU_DESC_UXN, (1 << 54)
-
-/*
-	relocation of the stack pointer
-	=> set the stack pointer to 0x80040000
-*/
+	.equ STACK_BASE, 0x80040000
+	.equ DRAM_STACK_BASE, 0x80080000
+	.equ VIRTUAL_STACK_BASE, 0xFFFF0000
+	
 
 _start:
-	ldr		x0, =0x80040000
-	bic		x0, x0, #0xF
-	mov		sp, x0
+	bl		_init_uart
+	bl		uart_enable_interrupts
+	bl		gic_enable_uart_irq
 	bl		print_address
+	bl		_init_hw
+	ldr		x0, =uart_message_el1
+	bl		uart_write_string
+	bl		_relocate_stack
 	msr		daifset, 0b1111
 	ldr     x0, =interupt_disable_message
 	bl      uart_write_string
-	b		_init_hw
+	b		_main
+
+_relocate_stack:
+	ldr		x0, =STACK_BASE
+	bic		x0, x0, #0xF
+	mov		sp, x0
+	ret
 
 /*
 	Initialization of the hardware
@@ -75,6 +84,10 @@ _start:
 	=> enable the timer
 	=> initialize the UART
 */
+_init_uart:
+	bl		uart_init
+	ldr		x0, =uart_message_init
+	bl		uart_write_string
 
 _init_hw:
 	ldr		x0, =4000000      
@@ -89,24 +102,19 @@ _init_hw:
 	bl		uart_write_string
 	ldr		x0, =timer_message
 	bl		uart_write_string
-	bl		_init_uart
+	bl		_relocate_stack_dram
 
-_init_uart:
-	bl		uart_init
-	ldr		x0, =uart_message_init
-	bl		uart_write_string
-	bl		_main
 
 /*
-	Main function
-	=> get the register size
-	=> ensure that the program is running in EL1
-	=> check the PSTATE mode
-	=> set the vector base address
-	=> enable the UART interrupt
-	=> clear the BSS section
-	=> set up the page tables
-	=> enable the MMU
+	; Main function
+	; => get the register size
+	; => ensure that the program is running in EL1
+	; => check the PSTATE mode
+	; => set the vector base address
+	; => enable the UART interrupt
+	; => clear the BSS section
+	; => set up the page tables
+	; => enable the MMU
 */
 
 _main:
@@ -118,11 +126,7 @@ _main:
 	bl		print_address
 	isb
 	
-	bl		gic_enable_uart_irq
-	bl		print_address
-	bl		uart_enable_interrupts
-	ldr		x0, =uart_message_el1
-	bl		uart_write_string
+
 
 	bl		clear_bss
 
@@ -152,18 +156,18 @@ _error_handler:
 	b .     
 
 /*
-	Ensure that the program is running in EL1
-	=> check the CurrentEL register
-	=> if the program is running in EL1, return
-	=> if the program is running in EL3, switch to EL2
-	=> if the program is running in EL2, switch to EL1
-	=> if the program is running in EL0, switch to EL1
-
-	CurrentEL register values:
-	0b0000 => 0x0 => EL0
-	0b0100 => 0x4 => EL1
-	0b1000 => 0x8 => EL3
-	0b0010 => 0x2 => EL2
+	; Ensure that the program is running in EL1
+	; => check the CurrentEL register
+	; => if the program is running in EL1, return
+	; => if the program is running in EL3, switch to EL2
+	; => if the program is running in EL2, switch to EL1
+	; => if the program is running in EL0, switch to EL1
+	;
+	; CurrentEL register values:
+	; 0b0000 => 0x0 => EL0
+	; 0b0100 => 0x4 => EL1
+	; 0b1000 => 0x8 => EL3
+	; 0b0010 => 0x2 => EL2
 
 */
 
@@ -214,17 +218,17 @@ in_el1:
 	ret
 
 /*
-	Clear the BSS section
-	=> clear the level 0 page table (0x1000 bytes => 4096 bytes)
-	=> clear the level 1 page table (0x1000 bytes => 4096 bytes)
-
-	|  pagetable_level0 |  pagetable_level1  |
-	|-------------------|--------------------|
-	| 0x0000000000000000| 0x0000000000000000 |
-	| 0x0000000000000000| 0x0000000000000000 |
-	| 0x0000000000000000| 0x0000000000000000 |
-	| 0x0000000000000000| 0x0000000000000000 |
-	|        ...        |        ...         |
+	; Clear the BSS section
+	; => clear the level 0 page table (0x1000 bytes => 4096 bytes)
+	; => clear the level 1 page table (0x1000 bytes => 4096 bytes)
+	;
+	; |  pagetable_level0 |  pagetable_level1  |
+	; |-------------------|--------------------|
+	; | 0x0000000000000000| 0x0000000000000000 |
+	; | 0x0000000000000000| 0x0000000000000000 |
+	; | 0x0000000000000000| 0x0000000000000000 |
+	; | 0x0000000000000000| 0x0000000000000000 |
+	; |        ...        |        ...         |
 */
 
 clear_bss:
@@ -244,19 +248,19 @@ clear_bss:
 	ret
 
 /*
-    Page Table Setup Explanation:
-
-    - Virtual address (VA) structure (64-bit):
-      | Level 0 Index [63:39] | Level 1 Index [38:30] | Page Offset [29:0] |
-      - Each level indexes 512 entries (4096 bytes / 8 bytes per entry).
-
-    Example Mapping:
-    - VA: 0x40000000 (1 GB region mapped)
-      - Level 0 Index: Bits [63:39] = 0x0.
-      - Level 1 Index: Bits [38:30] = 0x1.
-      - Offset: Bits [29:0] = 0x0.
-	- 0x4000_0000_000
-    Page Table Entries:
+	;     Page Table Setup Explanation:
+	;
+	;     - Virtual address (VA) structure (64-bit):
+	;       | Level 0 Index [63:39] | Level 1 Index [38:30] | Page Offset [29:0] |
+	;       - Each level indexes 512 entries (4096 bytes / 8 bytes per entry).
+	;
+	;     Example Mapping:
+	;     - VA: 0x40000000 (1 GB region mapped)
+	;       - Level 0 Index: Bits [63:39] = 0x0.
+	;       - Level 1 Index: Bits [38:30] = 0x1.
+	;       - Offset: Bits [29:0] = 0x0.
+	; - 0x4000_0000_000
+	;     Page Table Entries:
     ; - Each entry is 8 bytes (64 bits):
       ; - Bits [0]: VALID (1 = valid entry).
       ; - Bits [1]: TABLE (1 = next level), BLOCK (0 = large mapping).
@@ -291,31 +295,38 @@ setup_page_tables:
 	mov		x0, #0
 	ret
 
+
+
+
+
 /*
-	Enable the MMU
-	=> set the TTBR0_EL1 register	
-		((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
-	=> set the TTBR1_EL1 register	
-		((translation table base register 1)TTBR1_EL1 = 0x4000_1000 => level 1 page table)
-	=> set the MAIR_EL1 register	
-		(memory attribute indirection register MAIR_EL1 = 0x0000_0000_0000_0000)
-	=> set the TCR_EL1 register		
-		((translation control register)TCR_EL1 = 0x0000_0000_0000_00B5)
-	=> set the SCTLR_EL1 register	
-		(system control register)SCTLR_EL1 = 0x0000_0000_0000_705
-	=> enable the MMU				
-		(SCTLR_EL1 = SCTLR_EL1 | 0x1)
-	=> enable the floating point	
-		(CPACR_EL1 = CPACR_EL1 | 0x3)
-	=> clear the BSS section		
-	=> check the PSTATE mode		
-		(if the program is running in EL1, return)
-	=> enable interrupts			
+	; Enable the MMU
+	; => set the TTBR0_EL1 register	
+	; 	((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
+	; => set the TTBR1_EL1 register	
+	; 	((translation table base register 1)TTBR1_EL1 = 0x4000_1000 => level 1 page table)
+	; => set the MAIR_EL1 register	
+	; 	(memory attribute indirection register MAIR_EL1 = 0x0000_0000_0000_0000)
+	; => set the TCR_EL1 register		
+	; 	((translation control register)TCR_EL1 = 0x0000_0000_0000_00B5)
+	; => set the SCTLR_EL1 register	
+	; 	(system control register)SCTLR_EL1 = 0x0000_0000_0000_705
+	; => enable the MMU				
+	; 	(SCTLR_EL1 = SCTLR_EL1 | 0x1)
+	; => enable the floating point	
+	; 	(CPACR_EL1 = CPACR_EL1 | 0x3)
+	; => clear the BSS section		
+	; => check the PSTATE mode		
+	; 	(if the program is running in EL1, return)
+	; => enable interrupts			
 */
+
 
 enable_mmu:
 	ldr		x0, =pagetable_level0		/* set the TTBR0_EL1 register at 0x4000_0000 */
+	bl		print_address
 	ldr		x1, =pagetable_level1		/* set the TTBR1_EL1 register at 0x4000_1000 */
+	bl		print_address
 	ldr		x2, =(MMU_DESC_VALID | MMU_DESC_TABLE) /* set the MAIR_EL1 register */
 	orr		x2, x2, x1, LSR #12
 	str		x2, [x0]
@@ -333,9 +344,9 @@ enable_mmu:
 	str		x4, [x1, #8]
 
 /*
-	Enable the MMU
-	=> set the TTBR0_EL1 register	
-		((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
+	; Enable the MMU
+	; => set the TTBR0_EL1 register	
+	; 	((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
 */
 
 	msr		TTBR0_EL1, x0
@@ -345,10 +356,10 @@ enable_mmu:
 	bl		uart_write_string
 
 /*
-	Set the MAIR_EL1 register to 0x0000_0000_0000_0000
-	=> set the memory attribute indirection register
-	=> set the TCR_EL1 register to 0x0000_0000_0000_00B5
-		(4KB granule, 48-bit VA)
+	; Set the MAIR_EL1 register to 0x0000_0000_0000_0000
+	; => set the memory attribute indirection register
+	; => set the TCR_EL1 register to 0x0000_0000_0000_00B5
+	; 	(4KB granule, 48-bit VA)
 */
 
 	ldr		x0, =mair_value
@@ -363,6 +374,7 @@ enable_mmu:
 
 	ldr		x0, =tcr_message
 	bl		uart_write_string
+	bl		_relocate_stack_physical
 	mrs		x0, SCTLR_EL1
 	bl		print_address
 	orr		x0, x0, 0x1
@@ -383,6 +395,7 @@ enable_mmu:
 	ldr		x0, =sctlr_message
 	bl		uart_write_string
 	mrs		x0, SCTLR_EL1		/* read the value of SCTLR_EL1 */
+
 	mov		x1, x0
 	bl		print_address
 	ldr		x0, =uart_message_mmu_enabled
@@ -395,8 +408,51 @@ enable_mmu:
 	ldr		x0, =interrupt_message
 	bl		uart_write_string
 	bl		print_address
+
+	bl		_relocate_stack_virtual
+	ldr		x0, =eaqual
+	bl		uart_write_string
+	ldr		x0, =0x44440000    
+	ldr		x1, [x0]
+	bl		print_address
+	ldr		x0, =0x30000000  
+	ldr		x1, [x0]
+	bl		print_address
+	ldr		x0, =0x20000000   
+	ldr		x1, [x0]
+	bl		print_address
+	ldr		x0, =0x41414141
+	ldr		x1, [x0]
+	bl		print_address
+	ldr		x0, =0x44440000
+	ldr		x1, [x0]          
+	bl		print_address
+	ldr     x0, =0x12345678   
+	ldr     x1, [x0]         
+	bl      print_address
+
+	ldr     x0, =end_of_eaqual
+	bl      uart_write_string
 	bl		uart_prompt
 	ret
+
+_relocate_stack_dram:
+    ldr     x0, =DRAM_STACK_BASE   // New stack base in DRAM (e.g., 0x80080000)
+    bic     x0, x0, #0xF            // Align to 16 bytes
+    mov     sp, x0                  // Update stack pointer
+    ret
+
+_relocate_stack_virtual:
+    ldr     x0, =VIRTUAL_STACK_BASE // Virtual address (e.g., 0xFFFF0000)
+    bic     x0, x0, #0xF            // Align to 16 bytes
+    mov     sp, x0                  // Update stack pointer
+    ret
+
+_relocate_stack_physical:
+    ldr     x0, =0x80080000         // Physical address for the stack
+    bic     x0, x0, #0xF            // Align to 16 bytes
+    mov     sp, x0                  // Update stack pointer
+    ret
 
 uart_print_hex:
 	stp		x1, x2, [sp, #-16]!
@@ -493,7 +549,10 @@ vectors:
 */
 
 .section .data
+eaqual:						.asciz "========= test stack usage =========\n"
 
+end_of_eaqual:				.asciz "====================================\n"
+stack:						.asciz "[INFO]: Stack initialized at 0x80040000.\n"
 hex_chars:					.asciz "0123456789ABCDEF"
 mair_value:					.quad 0x00000000004404FF
 prompt_message:				.asciz "\nSIMPL_Boot> "
@@ -533,6 +592,8 @@ newline:					.asciz "\n"
 .align 12
 level1_table:	.skip 4096
 level2_table:	.skip 4096
+level3_table:	.skip 4096
+
 
 .align 3
 user_read_buffer:
