@@ -63,8 +63,9 @@ _start:
 	bic		x0, x0, #0xF
 	mov		sp, x0
 	bl		print_address
-	msr		daifset, #2
-	bl		print_address
+	msr		daifset, 0b1111
+	ldr     x0, =interupt_disable_message
+	bl      uart_write_string
 	b		_init_hw
 
 /*
@@ -290,10 +291,32 @@ setup_page_tables:
 	mov		x0, #0
 	ret
 
+/*
+	Enable the MMU
+	=> set the TTBR0_EL1 register	
+		((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
+	=> set the TTBR1_EL1 register	
+		((translation table base register 1)TTBR1_EL1 = 0x4000_1000 => level 1 page table)
+	=> set the MAIR_EL1 register	
+		(memory attribute indirection register MAIR_EL1 = 0x0000_0000_0000_0000)
+	=> set the TCR_EL1 register		
+		((translation control register)TCR_EL1 = 0x0000_0000_0000_00B5)
+	=> set the SCTLR_EL1 register	
+		(system control register)SCTLR_EL1 = 0x0000_0000_0000_705
+	=> enable the MMU				
+		(SCTLR_EL1 = SCTLR_EL1 | 0x1)
+	=> enable the floating point	
+		(CPACR_EL1 = CPACR_EL1 | 0x3)
+	=> clear the BSS section		
+	=> check the PSTATE mode		
+		(if the program is running in EL1, return)
+	=> enable interrupts			
+*/
+
 enable_mmu:
-	ldr		x0, =pagetable_level0
-	ldr		x1, =pagetable_level1
-	ldr		x2, =(MMU_DESC_VALID | MMU_DESC_TABLE)
+	ldr		x0, =pagetable_level0		/* set the TTBR0_EL1 register at 0x4000_0000 */
+	ldr		x1, =pagetable_level1		/* set the TTBR1_EL1 register at 0x4000_1000 */
+	ldr		x2, =(MMU_DESC_VALID | MMU_DESC_TABLE) /* set the MAIR_EL1 register */
 	orr		x2, x2, x1, LSR #12
 	str		x2, [x0]
 
@@ -307,14 +330,6 @@ enable_mmu:
 	orr		x4, x4, x3, LSR #12
 	str		x4, [x1, #8]
 
-	ldr		x0, =pagetable_level0
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x0, =pagetable_level1
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x1, [x0, #8]
-	bl		print_address
 
 	msr		TTBR0_EL1, x0
 	bl		print_address
@@ -327,11 +342,11 @@ enable_mmu:
 	dsb		sy
 
 
-	ldr		x0, =0x00000000000000B5
+	ldr		x0, =0x00000000000000B5 /* set the TCR_EL1 register 4KB granule, 48-bit VA */
 	msr		TCR_EL1, x0
 	bl		print_address
-	dsb		sy
-	isb
+	dsb		sy				/* ensure that all memory accesses are completed */
+	isb						/* ensure that all instructions are completed */
 
 	ldr		x0, =tcr_message
 	bl		uart_write_string
@@ -340,13 +355,13 @@ enable_mmu:
 	orr		x0, x0, 0x1
 	bl		print_address
 
-	orr		x0, x0, (1 << 12)
+	orr		x0, x0, (1 << 12)	/* 1 << 12 = 0x1000 => enable the MMU */
 	bl		print_address
-	orr		x0, x0, (1 << 4)
+	orr		x0, x0, (1 << 4)	/* 1 << 4 = 0x10 => enable the D-cache */
 	bl		print_address
-	orr		x0, x0, (1 << 2)
+	orr		x0, x0, (1 << 2)	/* 1 << 2 = 0x4 => enable the I-cache */
 	bl		print_address
-	mov		x1, x0
+	mov		x1, x0				/* save the value of SCTLR_EL1 */
 	bl		print_address
 	msr		SCTLR_EL1, x0
 	bl		print_address
@@ -354,23 +369,19 @@ enable_mmu:
 
 	ldr		x0, =sctlr_message
 	bl		uart_write_string
-	mrs		x0, SCTLR_EL1
+	mrs		x0, SCTLR_EL1		/* read the value of SCTLR_EL1 */
 	mov		x1, x0
 	bl		print_address
 	ldr		x0, =uart_message_mmu_enabled
 	bl		uart_write_string
-
-	ldr		x0, =floating_point_message
-	bl		uart_write_string
-	orr		x0, x0, (0x3 << 20)
-	msr		cpacr_el1, x0
-	bl		print_address
 	isb
 	nop
-	bl		clear_bss
-	bl		check_pstate_mode
-
-	bl		print_register
+	bl		clear_bss			/* clear the BSS section => 0x1000 bytes */
+	bl		check_pstate_mode	/* check the PSTATE mode */
+    msr		DAIFClr, 0b1111		/* reenable all interrupts */
+	ldr		x0, =interrupt_message
+	bl		uart_write_string
+	bl		print_address
 	bl		uart_prompt
 	ret
 
@@ -475,7 +486,7 @@ mair_value:					.quad 0x00000000004404FF
 prompt_message:				.asciz "\nSIMPL_Boot> "
 debug_command_msg:			.asciz "\n[DEBUG]: Command received: "
 unknown_command_msg:		.asciz "\n[ERROR]: Unknown command."
-rfequence_message:			.asciz "\n[INFO]: Timer frequency set to 4 MHz."
+rfequence_message:			.asciz "[INFO]: Timer frequency set to 4 MHz."
 timeout_message:			.asciz "\n[INFO]: Timeout set to 100 000 cycles."
 timer_message:				.asciz "\n[INFO]: Timer enabled.\n"
 help_command:				.asciz "help"
@@ -495,6 +506,8 @@ uart_message_el0:			.asciz "[EL]: In EL0\n"
 uart_message_el3:			.asciz "[EL]: In EL3\n"
 uart_message_el2:			.asciz "[EL]: In EL2\n"
 uart_message_el1:			.asciz "[EL]: In EL1\n"
+interrupt_message:			.asciz "[INFO]: Interrupts enabled.\n"
+interupt_disable_message:	.asciz "[INFO]: Interrupts disabled.\n"
 newline:					.asciz "\n"
 /* 
 	This section contains the bss section
