@@ -339,6 +339,7 @@ enable_mmu:
 	bl		print_address
 	orr		x0, x0, 0x1
 	bl		print_address
+
 	orr		x0, x0, (1 << 12)
 	bl		print_address
 	orr		x0, x0, (1 << 4)
@@ -357,12 +358,18 @@ enable_mmu:
 	mov		x1, x0
 	bl		print_address
 	ldr		x0, =uart_message_mmu_enabled
+	bl		uart_write_string
+
+	ldr		x0, =floating_point_message
+	bl		uart_write_string
+	orr		x0, x0, (0x3 << 20)
+	msr		cpacr_el1, x0
 	bl		print_address
+	isb
+	nop
+	bl		clear_bss
 	bl		check_pstate_mode
-	bl		uart_write_string
-	ldr		x0, =sp_addr_message
-	bl		uart_write_string
-	mov		sp, sp
+
 	bl		print_register
 	bl		uart_prompt
 	ret
@@ -475,6 +482,7 @@ help_command:				.asciz "help"
 error_message:				.asciz "[ERROR]: Something went wrong.\n"
 help_message:				.asciz "[INFO]: Available commands:\n  - help: Show available commands\n"
 sp_addr_message:			.asciz "[DEBUG]: SP = "
+floating_point_message:		.asciz "[DEBUG]: Disabling floating point in EL1.\n"
 uart_message_init:			.asciz "[UART]: Initialized.\n"
 ttbr_message:				.asciz "[MMU]: TTBR0_EL1 set.\n"
 tcr_message:				.asciz "[MMU]: TCR_EL1 set.\n"
@@ -483,12 +491,11 @@ mmu_message:				.asciz "[MMU]: init...\n"
 uart_message_page_setup:	.asciz "[MMU]: Page tables setup complete.\n"
 uart_message_mmu_enabled:	.asciz "[MMU]: Enabled.\n"
 sp_message:					.asciz "[DEBUG]: sp = " 
-newline:					.asciz "\n"
 uart_message_el0:			.asciz "[EL]: In EL0\n"
 uart_message_el3:			.asciz "[EL]: In EL3\n"
 uart_message_el2:			.asciz "[EL]: In EL2\n"
 uart_message_el1:			.asciz "[EL]: In EL1\n"
-
+newline:					.asciz "\n"
 /* 
 	This section contains the bss section
 	of the program. This is used to store
