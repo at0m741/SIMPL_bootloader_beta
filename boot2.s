@@ -320,8 +320,10 @@ enable_mmu:
 	orr		x2, x2, x1, LSR #12
 	str		x2, [x0]
 
+
+
 	ldr		x3, =0x00000000
-	mov		x4, 0x705 
+	mov		x4, 0x705				/* set the SCTLR_EL1 register to 0x0000_0000_0000_705 */
 	orr		x4, x4, x3, LSR #12
 	str		x4, [x1]
 
@@ -330,18 +332,29 @@ enable_mmu:
 	orr		x4, x4, x3, LSR #12
 	str		x4, [x1, #8]
 
+/*
+	Enable the MMU
+	=> set the TTBR0_EL1 register	
+		((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
+*/
 
 	msr		TTBR0_EL1, x0
 	bl		print_address
 	isb
 	ldr		x0, =ttbr_message
 	bl		uart_write_string
+
+/*
+	Set the MAIR_EL1 register to 0x0000_0000_0000_0000
+	=> set the memory attribute indirection register
+	=> set the TCR_EL1 register to 0x0000_0000_0000_00B5
+		(4KB granule, 48-bit VA)
+*/
+
 	ldr		x0, =mair_value
 	msr		MAIR_EL1, x0
 	bl		print_address
 	dsb		sy
-
-
 	ldr		x0, =0x00000000000000B5 /* set the TCR_EL1 register 4KB granule, 48-bit VA */
 	msr		TCR_EL1, x0
 	bl		print_address
