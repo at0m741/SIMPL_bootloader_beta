@@ -52,9 +52,10 @@
 	.equ MMU_DESC_ATTRIDX_MEM, (0 << 2)
 	.equ MMU_DESC_PXN, (1 << 53)
 	.equ MMU_DESC_UXN, (1 << 54)
-	.equ STACK_BASE, 0x80040000
-	.equ DRAM_STACK_BASE, 0x80080000
-	.equ VIRTUAL_STACK_BASE, 0xFFFF0000
+	.equ STACK_BASE, 0x80040000          // Initial stack base
+	.equ DRAM_STACK_BASE, 0x80080000     // Alternate physical stack base
+	.equ PHYSICAL_STACK_BASE, 0x80080000 // Physical stack base
+	.equ VIRTUAL_STACK_BASE, 0xFFFF0000  // Virtual stack base
 	
 
 _start:
@@ -126,8 +127,6 @@ _main:
 	bl		print_address
 	isb
 	
-
-
 	bl		clear_bss
 
 	bl		SIMPL_BOOT_TAG
@@ -276,28 +275,33 @@ clear_bss:
 */
 
 setup_page_tables:
-	ldr		x0, =pagetable_level0
-	ldr		x1, =pagetable_level1
-	orr		x2, x1, 0x3   
-	str		x2, [x0]
+    // Level 0 Page Table
+    ldr     x0, =pagetable_level0
+    ldr     x1, =pagetable_level1
+    // Set up Level 0 entry pointing to Level 1 table
+    ldr     x2, =((MMU_DESC_VALID) | (MMU_DESC_TABLE))
+    orr     x2, x2, x1, LSR #12    // Include the address of Level 1 table
+    str     x2, [x0]
 
-/* 
-	Level 1 Table Entry 0: 1 GB block at VA = 0x4000_0000 
-		Virtual address: 0x4000_0000
-			- Bits [63:39] = 0x0.
-			- Bits [38:30] = 0x1.
-			- Bits [29:0] = 0x0. -> Offset = 0x0.
-*/
+    // Level 1 Page Table
+    ldr     x3, =0x00000000        // Physical base address
+    ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
+    orr     x4, x4, x3, LSR #30    // Include the physical address shifted appropriately
+    str     x4, [x1]
 
-	ldr		x3, =0x40000000      /* 1 GB block at VA = 0x4000_0000 */   
-	ldr		x4, =((MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW))
-	str		x4, [x1]
-	mov		x0, #0
-	ret
+    // Map Virtual Stack Address
+    ldr     x3, =PHYSICAL_STACK_BASE
+    ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
+    orr     x4, x4, x3, LSR #30    // Include the physical address shifted appropriately
+    // Calculate the Level 1 offset for VIRTUAL_STACK_BASE
+    ldr     x5, =VIRTUAL_STACK_BASE
+    lsr     x5, x5, #30            // Get the Level 1 index
+    mov     x6, #8                 // Each entry is 8 bytes
+    mul     x5, x5, x6             // Offset = index * 8
+    str     x4, [x1, x5]           // Store entry in Level 1 table
 
-
-
-
+    mov     x0, #0
+    ret
 
 /*
 	; Enable the MMU
@@ -323,78 +327,36 @@ setup_page_tables:
 
 
 enable_mmu:
-	ldr		x0, =pagetable_level0		/* set the TTBR0_EL1 register at 0x4000_0000 */
+    // Set up MAIR_EL1 with memory attributes
+    ldr     x0, =0xFF               // Attr0: Normal memory, write-back, write-allocate
+    lsl     x0, x0, #0              // Place Attr0 at bits [7:0]
+    ldr     x1, =0x04               // Attr1: Device-nGnRE memory
+    lsl     x1, x1, #8              // Place Attr1 at bits [15:8]
+    orr     x0, x0, x1
+    msr     MAIR_EL1, x0
+
+    // Set up TCR_EL1
+	ldr     x0, =( (16 << 0) | (0 << 6) | (0 << 8) | (1 << 10) | (0 << 12) | (0 << 14) )
+	msr     TCR_EL1, x0
 	bl		print_address
-	ldr		x1, =pagetable_level1		/* set the TTBR1_EL1 register at 0x4000_1000 */
-	bl		print_address
-	ldr		x2, =(MMU_DESC_VALID | MMU_DESC_TABLE) /* set the MAIR_EL1 register */
-	orr		x2, x2, x1, LSR #12
-	str		x2, [x0]
+    // Set TTBR0_EL1 to point to the base of the page table
+    ldr     x0, =pagetable_level0
+    msr     TTBR0_EL1, x0
+	ldr     x0, =ttbr_message
+	bl      uart_write_string
+    isb
 
-
-
-	ldr		x3, =0x00000000
-	mov		x4, 0x705				/* set the SCTLR_EL1 register to 0x0000_0000_0000_705 */
-	orr		x4, x4, x3, LSR #12
-	str		x4, [x1]
-
-	ldr		x3, =0x40000000
-	mov		x4, 0x601
-	orr		x4, x4, x3, LSR #12
-	str		x4, [x1, #8]
-
-/*
-	; Enable the MMU
-	; => set the TTBR0_EL1 register	
-	; 	((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
-*/
-
-	msr		TTBR0_EL1, x0
-	bl		print_address
-	isb
-	ldr		x0, =ttbr_message
-	bl		uart_write_string
-
-/*
-	; Set the MAIR_EL1 register to 0x0000_0000_0000_0000
-	; => set the memory attribute indirection register
-	; => set the TCR_EL1 register to 0x0000_0000_0000_00B5
-	; 	(4KB granule, 48-bit VA)
-*/
-
-	ldr		x0, =mair_value
-	msr		MAIR_EL1, x0
-	bl		print_address
-	dsb		sy
-	ldr		x0, =0x00000000000000B5 /* set the TCR_EL1 register 4KB granule, 48-bit VA */
-	msr		TCR_EL1, x0
-	bl		print_address
-	dsb		sy				/* ensure that all memory accesses are completed */
-	isb						/* ensure that all instructions are completed */
-
-	ldr		x0, =tcr_message
-	bl		uart_write_string
-	bl		_relocate_stack_physical
+    // Enable the MMU, caches, and branch prediction
 	mrs		x0, SCTLR_EL1
-	bl		print_address
-	orr		x0, x0, 0x1
-	bl		print_address
-
-	orr		x0, x0, (1 << 12)	/* 1 << 12 = 0x1000 => enable the MMU */
-	bl		print_address
+	orr		x0, x0, (1 << 0)
+	orr		x0, x0, (1 << 2)	/* 1 << 12 = 0x1000 => enable the MMU */
 	orr		x0, x0, (1 << 4)	/* 1 << 4 = 0x10 => enable the D-cache */
-	bl		print_address
-	orr		x0, x0, (1 << 2)	/* 1 << 2 = 0x4 => enable the I-cache */
+	orr		x0, x0, (1 << 12)	/* 1 << 2 = 0x4 => enable the I-cache */
 	bl		print_address
 	mov		x1, x0				/* save the value of SCTLR_EL1 */
-	bl		print_address
 	msr		SCTLR_EL1, x0
 	bl		print_address
-	isb
-
-	ldr		x0, =sctlr_message
-	bl		uart_write_string
-	mrs		x0, SCTLR_EL1		/* read the value of SCTLR_EL1 */
+    isb
 
 	mov		x1, x0
 	bl		print_address
@@ -410,48 +372,24 @@ enable_mmu:
 	bl		print_address
 
 	bl		_relocate_stack_virtual
-	ldr		x0, =eaqual
-	bl		uart_write_string
-	ldr		x0, =0x44440000    
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x0, =0x30000000  
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x0, =0x20000000   
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x0, =0x41414141
-	ldr		x1, [x0]
-	bl		print_address
-	ldr		x0, =0x44440000
-	ldr		x1, [x0]          
-	bl		print_address
-	ldr     x0, =0x12345678   
-	ldr     x1, [x0]         
-	bl      print_address
-
-	ldr     x0, =end_of_eaqual
-	bl      uart_write_string
 	bl		uart_prompt
-	ret
 
 _relocate_stack_dram:
-    ldr     x0, =DRAM_STACK_BASE   // New stack base in DRAM (e.g., 0x80080000)
-    bic     x0, x0, #0xF            // Align to 16 bytes
-    mov     sp, x0                  // Update stack pointer
+    ldr     x0, =DRAM_STACK_BASE  
+    bic     x0, x0, #0xF         
+    mov     sp, x0              
     ret
 
 _relocate_stack_virtual:
-    ldr     x0, =VIRTUAL_STACK_BASE // Virtual address (e.g., 0xFFFF0000)
-    bic     x0, x0, #0xF            // Align to 16 bytes
-    mov     sp, x0                  // Update stack pointer
+    ldr     x0, =VIRTUAL_STACK_BASE
+    bic     x0, x0, #0xF            
+    mov     sp, x0                
     ret
 
 _relocate_stack_physical:
-    ldr     x0, =0x80080000         // Physical address for the stack
-    bic     x0, x0, #0xF            // Align to 16 bytes
-    mov     sp, x0                  // Update stack pointer
+    ldr     x0, =0x80080000         
+    bic     x0, x0, #0xF          
+    mov     sp, x0                 
     ret
 
 uart_print_hex:
