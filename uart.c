@@ -123,9 +123,7 @@ void uart_read_string(char *buffer, size_t max_len) {
 
     while (1) {
         c = uart_read_char();
-        if (c == '\n' || c == '\r') {
-            break;
-        }
+
         if (i < max_len - 1) {
             buffer[i++] = c;
         }
@@ -289,6 +287,32 @@ void uart_write_char(char c) {
 	*uart_dr = c;
 }
 
+
+void uart_write_int(int num) {
+    char buffer[10];
+    int i = 0;
+
+    if (num == 0) {
+        uart_write_char('0');
+        return;
+    }
+
+    if (num < 0) {
+        uart_write_char('-');
+        num = -num;
+    }
+
+    while (num > 0 && i < sizeof(buffer) - 1) {
+        buffer[i++] = '0' + (num % 10);
+        num /= 10;
+    }
+
+    // Print the number in reverse
+    for (int j = i - 1; j >= 0; j--) {
+        uart_write_char(buffer[j]);
+    }
+}
+
 void write_string(const char *str) {
     while (*str) {
         uart_write_char(*str++);
@@ -303,44 +327,6 @@ inline void process_command(const char *command) {
 	}
     write_string("[ERROR]: Unknown command.\n");
 	write_string("[DEBUG]: Command processing complete.\n");
-}
-
-
-
-void uart_prompt() {
-    char buffer[1024];
-    int index = 0;
-
-    uart_write_string("SIMPL_Boot> ");
-    while (1) {
-        char c = uart_read_char();
-
-        if (c == '\n' || c == '\r') {
-            buffer[index] = '\0'; 
-            uart_write_string("\n");
-
-            if (index > 0) { 
-                uart_write_string("[DEBUG]: Calling process_command...\n");
-
-			}
-            index = 0;
-            uart_write_string("SIMPL_Boot> ");
-            continue;
-        }
-
-        if (c == '\b' || c == 127) {
-            if (index > 0) {
-                index--;
-                uart_write_string("\b \b");
-            }
-            continue;
-        }
-
-        if (index < sizeof(buffer) - 1) {
-            buffer[index++] = c;
-            uart_write_char(c);
-        }
-    }
 }
 
 
@@ -375,3 +361,82 @@ void uart_print_debug(const char *label, uint64_t value) {
 }
 
 
+#define BUFFER_SIZE 1024
+int strlen(const char *str) {
+    int len = 0;
+    while (str[len]) {
+        len++;
+    }
+    return len;
+}
+
+const char *prompt_message = "\nSIMPL_Boot> ";
+const char *help_command = "help";
+const char *help_message = "[INFO]: Available commands:\n  - help: Show available commands\n";
+const char *unknown_command_msg = "\n[ERROR]: Unknown command.";
+
+char input_buffer[BUFFER_SIZE];
+
+void trim_input(char *str) {
+    int len = strlen(str);
+    while (len > 0 && (str[len - 1] == ' ' || str[len - 1] == '\t' || str[len - 1] == '\r' || str[len - 1] == '\n')) {
+        str[--len] = '\0';
+    }
+}
+
+void print_input_buffer_hex(const char *buffer, int length) {
+    uart_write_string("Received input (hex): ");
+    for (int i = 0; i < length; i++) {
+        char hex[4];
+		uart_write_string("0x"); 
+        uart_write_string(hex);
+    }
+    uart_write_string("\n");
+}
+#include <stdarg.h>
+void simple_printf(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    const char *p = format;
+    while (*p) {
+        if (*p == '%' && *(p + 1) == 's') {
+            p += 2;
+            char *str_arg = va_arg(args, char *);
+            uart_write_string(str_arg);
+        } else {
+            uart_write_char(*p++);
+        }
+    }
+
+    va_end(args);
+}
+
+
+void uart_prompt() {
+    while (1) {
+        uart_write_string("debug> ");
+        size_t index = 0;
+        char c;
+
+        while ((c = uart_read_char()) != '\0' && c != '\r' && index < BUFFER_SIZE - 1) {
+			uart_write_char(c);
+
+            if (c == 127 || c == '\b') {
+				if (index > 0) {
+					index--;
+					uart_write_string("\b \b");
+				}
+				if (c == '\r' || c == '\n' || c == '\0') 
+					uart_write_string("lol");
+                continue;
+            }
+            input_buffer[index++] = c;
+            uart_write_char(c);
+        }
+		if (strcmp(input_buffer, "1\r") == 0) {
+			uart_write_string("0x");
+		}
+        uart_write_string("\n");
+    }
+}

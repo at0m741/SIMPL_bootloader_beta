@@ -52,10 +52,10 @@
 	.equ MMU_DESC_ATTRIDX_MEM, (0 << 2)
 	.equ MMU_DESC_PXN, (1 << 53)
 	.equ MMU_DESC_UXN, (1 << 54)
-	.equ STACK_BASE, 0x80040000          // Initial stack base
-	.equ DRAM_STACK_BASE, 0x80080000     // Alternate physical stack base
-	.equ PHYSICAL_STACK_BASE, 0x80080000 // Physical stack base
-	.equ VIRTUAL_STACK_BASE, 0xFFFF0000  // Virtual stack base
+	.equ STACK_BASE, 0x80040000
+	.equ DRAM_STACK_BASE, 0x80080000
+	.equ PHYSICAL_STACK_BASE, 0x80080000
+	.equ VIRTUAL_STACK_BASE, 0xFFFF0000
 	
 
 _start:
@@ -170,18 +170,19 @@ _error_handler:
 
 */
 
+
 ensure_el1:
-	mrs		x0, CurrentEL
-	cmp		x0, 0b0100 
-	beq		in_el1
-	cmp		x0, 0b1000 
-	beq		in_el3
-	cmp		x0, 0b0010 
-	beq		in_el2
-	cmp		x0, 0b0000 
-	beq		in_el0
-	mov		x0, #0
-	b .
+    mrs     x0, CurrentEL
+    and     x0, x0, #0b1100
+    lsr     x0, x0, #2
+    cmp     x0, #1
+    beq     in_el1
+    cmp     x0, #3
+    beq     in_el3
+    cmp     x0, #2
+    beq     in_el2
+    b       _error_handler
+
 in_el0:
 	ldr		x0, =uart_message_el0
 	bl		uart_write_string
@@ -275,26 +276,34 @@ clear_bss:
 */
 
 setup_page_tables:
-    // Level 0 Page Table
-    ldr     x0, =pagetable_level0
-    ldr     x1, =pagetable_level1
+    
+	/* Level 0 Page Table */
+
+	ldr     x0, =pagetable_level0
+	ldr     x1, =pagetable_level1
+
     // Set up Level 0 entry pointing to Level 1 table
-    ldr     x2, =((MMU_DESC_VALID) | (MMU_DESC_TABLE))
-    orr     x2, x2, x1, LSR #12    // Include the address of Level 1 table
+    
+	ldr     x2, =((MMU_DESC_VALID) | (MMU_DESC_TABLE))
+    orr     x2, x2, x1, LSR #12    /* Include the address of Level 1 table */
     str     x2, [x0]
 
-    // Level 1 Page Table
-    ldr     x3, =0x00000000        // Physical base address
+    /* Level 1 Page Table */
+
+    ldr     x3, =0x40000000        /* Physical base address */
     ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
-    orr     x4, x4, x3, LSR #30    // Include the physical address shifted appropriately
+    orr     x4, x4, x3, LSR #30    /* Include the physical address shifted appropriately */
     str     x4, [x1]
 
-    // Map Virtual Stack Address
+    /* Map Virtual Stack Address */
+
     ldr     x3, =PHYSICAL_STACK_BASE
     ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
-    orr     x4, x4, x3, LSR #30    // Include the physical address shifted appropriately
-    // Calculate the Level 1 offset for VIRTUAL_STACK_BASE
-    ldr     x5, =VIRTUAL_STACK_BASE
+    orr     x4, x4, x3    /* Include the physical address shifted appropriately */
+    
+	/* Calculate the Level 1 offset for VIRTUAL_STACK_BASE */
+    
+	ldr     x5, =VIRTUAL_STACK_BASE
     lsr     x5, x5, #30            // Get the Level 1 index
     mov     x6, #8                 // Each entry is 8 bytes
     mul     x5, x5, x6             // Offset = index * 8
@@ -304,6 +313,7 @@ setup_page_tables:
     ret
 
 /*
+	; ================================================================================================== 
 	; Enable the MMU
 	; => set the TTBR0_EL1 register	
 	; 	((translation table base register 0)TTBR0_EL1 = 0x4000_0000 => level 0 page table)
@@ -323,6 +333,7 @@ setup_page_tables:
 	; => check the PSTATE mode		
 	; 	(if the program is running in EL1, return)
 	; => enable interrupts			
+	; ==================================================================================================
 */
 
 
@@ -344,18 +355,19 @@ enable_mmu:
     msr     TTBR0_EL1, x0
 	ldr     x0, =ttbr_message
 	bl      uart_write_string
+	dsb     sy
     isb
+
+	ic		iallu
+	dsb		nsh
+	isb
 
     // Enable the MMU, caches, and branch prediction
 	mrs		x0, SCTLR_EL1
-	orr		x0, x0, (1 << 0)
-	orr		x0, x0, (1 << 2)	/* 1 << 12 = 0x1000 => enable the MMU */
-	orr		x0, x0, (1 << 4)	/* 1 << 4 = 0x10 => enable the D-cache */
 	orr		x0, x0, (1 << 12)	/* 1 << 2 = 0x4 => enable the I-cache */
-	bl		print_address
+	orr		x0, x0, (1 << 2)	/* 1 << 12 = 0x1000 => enable the D-cache */
 	mov		x1, x0				/* save the value of SCTLR_EL1 */
 	msr		SCTLR_EL1, x0
-	bl		print_address
     isb
 
 	mov		x1, x0
@@ -412,74 +424,10 @@ uart_print_hex:
 	ldp		x1, x2, [sp], #16
 	ret
 
-uart_prompt:
-	ldr		x0, =prompt_message
-	bl		uart_write_string
-	mov		x1, sp
-	mov		x2, #0
 
-prompt_loop:
-	bl		uart_read_char
-	ldr		x0, =prompt_message
-	bl		uart_write_string
-	ldr		x3, =0x0A
-	mov		x3, x0
-	cmp		w3, #10         
-	b.eq	process_command
-
-	cmp		w3, #13         
-	b.eq	process_command
-
-	cmp		w3, #8      
-	b.eq	handle_backspace
-	cmp		x2, #1023
-
-	b.ge	prompt_loop
-	strb	w3, [x1, x2]
-	add		x2, x2, #1
-	b		prompt_loop
-
-handle_backspace:
-	cmp		x2, #0
-	b.le	prompt_loop
-
-	sub		x2, x2, #1
-	mov		x0, #8            
-	bl		uart_write_char
-	mov		x0, #32           
-	bl		uart_write_char
-	mov		x0, #8            
-	bl		uart_write_char
-	b		prompt_loop
-
-process_command:
-	mov		w0, #0
-	strb	w0, [x1, x2]
-
-	mov		x0, sp
-	bl		uart_write_string
-
-	ldr		x0, =help_command
-	mov		x1, sp
-	bl		strcmp
-	cbz		w0, handle_help
-	b		reset_prompt
-
-handle_help:
-	ldr		x0, =help_message
-	bl		uart_write_string
-	b		reset_prompt
-
-reset_prompt:
-	mov		x2, #0
-	ldr		x0, =prompt_message
-	bl		uart_write_string
-	b		prompt_loop
 
 vectors:
-	b	reset_prompt
-
-
+	b .
 /* 
 	This section contains the data that
 	is used by the program 
@@ -487,8 +435,16 @@ vectors:
 */
 
 .section .data
-eaqual:						.asciz "========= test stack usage =========\n"
+input_before_trim_msg: .asciz "\nInput before trim:\n"
+input_after_trim_msg:  .asciz "\nInput after trim:\n"
+strcmp_result_msg:     .asciz "strcmp result: "
 
+after_strcmp_message:		.asciz "After strcmp\n"
+version_command:			.asciz "version"
+help_command:				.asciz "help"
+version_message:			.asciz "SIMPL Bootloader v0.1\n"
+eaqual:						.asciz "========= test stack usage =========\n"
+physical_addr:				.asciz "[INFO]: Physical address mapped.\n"
 end_of_eaqual:				.asciz "====================================\n"
 stack:						.asciz "[INFO]: Stack initialized at 0x80040000.\n"
 hex_chars:					.asciz "0123456789ABCDEF"
@@ -499,7 +455,6 @@ unknown_command_msg:		.asciz "\n[ERROR]: Unknown command."
 rfequence_message:			.asciz "[INFO]: Timer frequency set to 4 MHz."
 timeout_message:			.asciz "\n[INFO]: Timeout set to 100 000 cycles."
 timer_message:				.asciz "\n[INFO]: Timer enabled.\n"
-help_command:				.asciz "help"
 error_message:				.asciz "[ERROR]: Something went wrong.\n"
 help_message:				.asciz "[INFO]: Available commands:\n  - help: Show available commands\n"
 sp_addr_message:			.asciz "[DEBUG]: SP = "
@@ -519,6 +474,9 @@ uart_message_el1:			.asciz "[EL]: In EL1\n"
 interrupt_message:			.asciz "[INFO]: Interrupts enabled.\n"
 interupt_disable_message:	.asciz "[INFO]: Interrupts disabled.\n"
 newline:					.asciz "\n"
+space:						.asciz " "
+strings_not_equal_message:	.asciz "[DEBUG]: Strings are not equal.\n"
+
 /* 
 	This section contains the bss section
 	of the program. This is used to store
@@ -536,7 +494,6 @@ level3_table:	.skip 4096
 .align 3
 user_read_buffer:
 	.skip 1024
-	.balign 0x1000
 pagetable_level0:
 	.space 0x1000
 	.balign 0x1000
