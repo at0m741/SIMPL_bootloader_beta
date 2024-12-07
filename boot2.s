@@ -60,6 +60,9 @@
 
 _start:
 	bl		_init_uart
+	isb
+	bl		_save_registers
+
 	bl		uart_enable_interrupts
 	bl		gic_enable_uart_irq
 	bl		print_address
@@ -67,9 +70,13 @@ _start:
 	ldr		x0, =uart_message_el1
 	bl		uart_write_string
 	bl		_relocate_stack
+	ldr		x0, =stack
+	bl		uart_write_string
 	msr		daifset, 0b1111
 	ldr     x0, =interupt_disable_message
 	bl      uart_write_string
+	ldr		x0, =save_registers_message
+	bl		uart_write_string
 	b		_main
 
 _relocate_stack:
@@ -91,21 +98,22 @@ _init_uart:
 	bl		uart_write_string
 
 _init_hw:
-	ldr		x0, =4000000      
-	msr		CNTFRQ_EL0, x0   
+	ldr		x0, =4000000				/* load the timer frequency to 4 MHz */ 
+	msr		CNTFRQ_EL0, x0				/* set the timer frequency */
 	ldr		x0, =rfequence_message	
 	bl		uart_write_string
-	ldr		x0, =100000     
-	msr		CNTP_TVAL_EL0, x0
-	mov		x0, #1          
-	msr		CNTP_CTL_EL0, x0
+	ldr		x0, =100000					/* load the timeout to 100 000 cycles */
+	msr		CNTP_TVAL_EL0, x0			/* set the timeout */
+	mov		x0, #1						/* enable the timer by setting the enable bit to 1 */
+	msr		CNTP_CTL_EL0, x0			/* enable the timer */
 	ldr		x0, =timeout_message
 	bl		uart_write_string
 	ldr		x0, =timer_message
 	bl		uart_write_string
-	bl		_relocate_stack_dram
-
-
+	bl		_relocate_stack_dram		/* relocate the stack to DRAM to 0x80080000 */
+	ldr		x0, =relocate_drarm_message
+	bl		uart_write_string
+	bl		_main
 /*
 	; Main function
 	; => get the register size
@@ -118,10 +126,30 @@ _init_hw:
 	; => enable the MMU
 */
 
+_save_registers:
+	stp		x0, x1, [sp, #-16]!
+	stp		x2, x3, [sp, #-16]!
+	stp		x4, x5, [sp, #-16]!
+	stp		x6, x7, [sp, #-16]!
+	stp		x8, x9, [sp, #-16]!
+	stp		x10, x11, [sp, #-16]!
+	stp		x12, x13, [sp, #-16]!
+	stp		x14, x15, [sp, #-16]!
+	stp		x16, x17, [sp, #-16]!
+	stp		x18, x19, [sp, #-16]!
+	stp		x19, x20, [sp, #-16]!
+	stp		x21, x22, [sp, #-16]!
+	stp		x23, x24, [sp, #-16]!
+	stp		x25, x26, [sp, #-16]!
+	stp		x27, x28, [sp, #-16]!
+	stp		x29, x30, [sp, #-16]!
+	mov		x29, sp
+	ret
+
 _main:
 	bl		get_register_size
 	bl		ensure_el1
-	bl		check_pstate_mode
+	bl		check_pstate_mode			/* check the PSTATE mode (EL1) */
 	adr		x0, vectors
 	msr		VBAR_EL1, x0
 	bl		print_address
@@ -195,7 +223,7 @@ in_el3:
 	orr		x0, x0, (1 << 10) 
 	orr		x0, x0, (1 << 0)  
 	msr		scr_el3, x0
-	mov		x0, 0b01001			/* set the PSTATE mode to EL2h */
+	mov		x0, 0b01001					/* set the PSTATE mode to EL2h */
 	msr		spsr_el3, x0
 	adr		x0, in_el2
 	msr		elr_el3, x0
@@ -207,8 +235,8 @@ in_el2:
 	mrs		x0, hcr_el2             
 	orr		x0, x0, (1 << 31)        
 	msr		hcr_el2, x0
-	mov		x0, 0b00101        /* set the PSTATE mode to EL1h */       
-	msr		spsr_el2, x0
+	mov		x0, 0b00101   
+	msr		spsr_el2, x0				/* set the PSTATE mode to EL1h */
 	adr		x0, in_el1
 	msr		elr_el2, x0
 	eret                          
@@ -285,29 +313,29 @@ setup_page_tables:
     // Set up Level 0 entry pointing to Level 1 table
     
 	ldr     x2, =((MMU_DESC_VALID) | (MMU_DESC_TABLE))
-    orr     x2, x2, x1, LSR #12    /* Include the address of Level 1 table */
+    orr     x2, x2, x1, LSR #12			/* Include the address of Level 1 table */
     str     x2, [x0]
 
     /* Level 1 Page Table */
 
-    ldr     x3, =0x40000000        /* Physical base address */
+    ldr     x3, =0x40000000				/* Physical base address */
     ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
-    orr     x4, x4, x3, LSR #30    /* Include the physical address shifted appropriately */
+    orr     x4, x4, x3, LSR #30			/* Include the physical address shifted appropriately */
     str     x4, [x1]
 
     /* Map Virtual Stack Address */
 
     ldr     x3, =PHYSICAL_STACK_BASE
     ldr     x4, =(MMU_DESC_VALID | MMU_DESC_BLOCK | MMU_DESC_AF | MMU_DESC_SH_INNER | MMU_DESC_AP_RW | MMU_DESC_ATTRIDX_MEM | MMU_DESC_UXN | MMU_DESC_PXN)
-    orr     x4, x4, x3    /* Include the physical address shifted appropriately */
+    orr     x4, x4, x3					/* Include the physical address shifted appropriately */
     
 	/* Calculate the Level 1 offset for VIRTUAL_STACK_BASE */
     
 	ldr     x5, =VIRTUAL_STACK_BASE
-    lsr     x5, x5, #30            // Get the Level 1 index
-    mov     x6, #8                 // Each entry is 8 bytes
-    mul     x5, x5, x6             // Offset = index * 8
-    str     x4, [x1, x5]           // Store entry in Level 1 table
+    lsr     x5, x5, #30            /* Get the Level 1 index */
+    mov     x6, #8                 /* Each entry is 8 bytes (64 bits) => 2^3 */
+    mul     x5, x5, x6             /* Offset = index * 8 */
+    str     x4, [x1, x5]           /* Store entry in Level 1 table */
 
     mov     x0, #0
     ret
@@ -339,43 +367,57 @@ setup_page_tables:
 
 enable_mmu:
     // Set up MAIR_EL1 with memory attributes
-    ldr     x0, =0xFF               // Attr0: Normal memory, write-back, write-allocate
-    lsl     x0, x0, #0              // Place Attr0 at bits [7:0]
-    ldr     x1, =0x04               // Attr1: Device-nGnRE memory
-    lsl     x1, x1, #8              // Place Attr1 at bits [15:8]
+    ldr     x0, =0xFF               /* Attr0: Normal memory, write-back, write-allocate 0xFF => 0b1111_1111 */
+    lsl     x0, x0, #0              /* Place Attr0 at bits [7:0] */
+    ldr     x1, =0x04               /* Attr1: Device-nGnRE memory 0x04 => 0b0000_0100 */
+    lsl     x1, x1, #8              /* Place Attr1 at bits [15:8] */
     orr     x0, x0, x1
     msr     MAIR_EL1, x0
+	ldr     x0, =mair_message
+	bl      uart_write_string
 
-    // Set up TCR_EL1
+    /* Set up TCR_EL1 */
+
 	ldr     x0, =( (16 << 0) | (0 << 6) | (0 << 8) | (1 << 10) | (0 << 12) | (0 << 14) )
 	msr     TCR_EL1, x0
 	bl		print_address
-    // Set TTBR0_EL1 to point to the base of the page table
-    ldr     x0, =pagetable_level0
+
+    /* Set TTBR0_EL1 to point to the base of the page table */
+    
+	ldr     x0, =pagetable_level0
     msr     TTBR0_EL1, x0
 	ldr     x0, =ttbr_message
 	bl      uart_write_string
 	dsb     sy
     isb
+	
+	/* Set ialluis to invalidate all instruction caches */
 
-	ic		iallu
-	dsb		nsh
+	ic		iallu			/* invalidate all instruction caches */
+	dsb		nsh				/* ensure all previous instructions are completed */
 	isb
+	ldr		x0, =insctruction_message
+	bl		uart_write_string
 
-    // Enable the MMU, caches, and branch prediction
+    /* Enable the MMU, caches, and branch prediction */
+	
 	mrs		x0, SCTLR_EL1
 	orr		x0, x0, (1 << 12)	/* 1 << 2 = 0x4 => enable the I-cache */
 	orr		x0, x0, (1 << 2)	/* 1 << 12 = 0x1000 => enable the D-cache */
 	mov		x1, x0				/* save the value of SCTLR_EL1 */
 	msr		SCTLR_EL1, x0
-    isb
+    dsb		sy
+	isb
+	ldr		x0, =data_message
+	bl		uart_write_string
 
 	mov		x1, x0
 	bl		print_address
 	ldr		x0, =uart_message_mmu_enabled
 	bl		uart_write_string
 	isb
-	nop
+
+
 	bl		clear_bss			/* clear the BSS section => 0x1000 bytes */
 	bl		check_pstate_mode	/* check the PSTATE mode */
     msr		DAIFClr, 0b1111		/* reenable all interrupts */
@@ -383,46 +425,58 @@ enable_mmu:
 	bl		uart_write_string
 	bl		print_address
 
-	bl		_relocate_stack_virtual
+	bl		_relocate_stack_virtual	
+	ldr		x0, =relocate_virtual_message
+	bl		uart_write_string
+	
+	bl		enable_interrupts
+	bl		check_execution_mode
+
 	bl		uart_prompt
+
+/* 
+	; Relocate the stack to the DRAM
+	; => load the DRAM stack address
+	; => clear the BSS section
+	; ===> 0x80080000
+*/
 
 _relocate_stack_dram:
     ldr     x0, =DRAM_STACK_BASE  
     bic     x0, x0, #0xF         
-    mov     sp, x0              
+    mov     sp, x0    
+	isb
+
     ret
+
+/*
+	; relocate the stack to the physical address
+	; => load the physical address
+	; => clear the BSS section
+	; ===> 0x80040000
+*/
 
 _relocate_stack_virtual:
     ldr     x0, =VIRTUAL_STACK_BASE
     bic     x0, x0, #0xF            
-    mov     sp, x0                
+    mov     sp, x0     
+
     ret
+
+/*
+	; relocate the stack to the physical address
+	; => load the physical address
+	; => clear the BSS section
+	; ===> 0x80080000
+*/
 
 _relocate_stack_physical:
     ldr     x0, =0x80080000         
     bic     x0, x0, #0xF          
-    mov     sp, x0                 
-    ret
-
-uart_print_hex:
-	stp		x1, x2, [sp, #-16]!
-	mov		x1, #16
-	ldr		x2, =hex_chars
-	sub		sp, sp, #17
-	mov		x3, sp
-1:
-	subs	x1, x1, #1
-	and		x4, x0, #0xF
-	add		x5, x2, x4
-	ldrb	w6, [x5]
-	strb	w6, [x3, x1]
-	lsr		x0, x0, #4
-	cbnz	x1, 1b
-	mov		x0, sp
+    mov     sp, x0           
+	ldr		x0, =relocate_physical_message
 	bl		uart_write_string
-	add		sp, sp, #17
-	ldp		x1, x2, [sp], #16
-	ret
+    ret
 
 
 
@@ -435,20 +489,21 @@ vectors:
 */
 
 .section .data
-input_before_trim_msg: .asciz "\nInput before trim:\n"
-input_after_trim_msg:  .asciz "\nInput after trim:\n"
-strcmp_result_msg:     .asciz "strcmp result: "
 
-after_strcmp_message:		.asciz "After strcmp\n"
-version_command:			.asciz "version"
-help_command:				.asciz "help"
+
+relocate_drarm_message:		.asciz "[INFO]: Relocating stack to DRAM.\n"
+relocate_virtual_message:	.asciz "[INFO]: Relocating stack to virtual address.\n"
+relocate_physical_message:	.asciz "[INFO]: Relocating stack to physical address.\n"
+mair_message:				.asciz "[MMU]: MAIR_EL1 set.\n"
+branching_message:			.asciz "[MMU]: Branch prediction enabled.\n"
+insctruction_message:		.asciz "[MMU]: Instruction cache enabled.\n"
+data_message:				.asciz "[MMU]: Data cache enabled.\n"
 version_message:			.asciz "SIMPL Bootloader v0.1\n"
 eaqual:						.asciz "========= test stack usage =========\n"
 physical_addr:				.asciz "[INFO]: Physical address mapped.\n"
 end_of_eaqual:				.asciz "====================================\n"
 stack:						.asciz "[INFO]: Stack initialized at 0x80040000.\n"
 hex_chars:					.asciz "0123456789ABCDEF"
-mair_value:					.quad 0x00000000004404FF
 prompt_message:				.asciz "\nSIMPL_Boot> "
 debug_command_msg:			.asciz "\n[DEBUG]: Command received: "
 unknown_command_msg:		.asciz "\n[ERROR]: Unknown command."
@@ -473,9 +528,10 @@ uart_message_el2:			.asciz "[EL]: In EL2\n"
 uart_message_el1:			.asciz "[EL]: In EL1\n"
 interrupt_message:			.asciz "[INFO]: Interrupts enabled.\n"
 interupt_disable_message:	.asciz "[INFO]: Interrupts disabled.\n"
+vbar_message:				.asciz "[INFO]: Vector base address set.\n"
+save_registers_message:		.asciz "[INFO]: Registers saved.\n"
 newline:					.asciz "\n"
 space:						.asciz " "
-strings_not_equal_message:	.asciz "[DEBUG]: Strings are not equal.\n"
 
 /* 
 	This section contains the bss section

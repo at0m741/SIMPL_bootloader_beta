@@ -12,7 +12,7 @@ CFLAGS += -DREAL_BUILD_DATE="\"$(DATE)\""
 
 ASFLAGS = 
 OBJCOPY_FLAGS = -O binary
-QEMU_FLAGS = -M virt -machine secure=off -cpu cortex-a53 -nographic -serial stdio -monitor none -bios
+QEMU_FLAGS = -M virt -machine secure=off -m 2G -cpu cortex-a53 -nographic -serial stdio -monitor none -bios
 
 TARGET = boot
 ASM_SRC = boot2.s

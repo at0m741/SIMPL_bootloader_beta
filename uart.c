@@ -25,8 +25,8 @@ void uart_write_string(const char *str) {
         }
         *uart_dr = *str++;
     }
-	for (int i = 0; i < 100000; i++) {
-	}
+	/* for (int i = 0; i < 100000; i++) { */
+	/* } */
 }
 
 void uart_print_hex(uint32_t value) {
@@ -96,14 +96,16 @@ void gic_enable_uart_irq() {
 }
 
 
-char uart_read_char(void) {
-    volatile uint32_t *uart_flags = (volatile uint32_t *)(UART_BASE + 0x18);
-    volatile uint32_t *uart_dr = (volatile uint32_t *)(UART_BASE);
 
-    while (*uart_flags & (1 << 4)) {
+char uart_read_char() {
+    volatile uint32_t *uart_dr = (volatile uint32_t *)UART_DR;
+    volatile uint32_t *uart_fr = (volatile uint32_t *)UART_FR;
+
+    while (*uart_fr & (1 << 4)) {
     }
     return (char)(*uart_dr & 0xFF); 
 }
+
 
 
 
@@ -288,6 +290,14 @@ void uart_write_char(char c) {
 }
 
 
+void print_buffer(const char *buffer) {
+    uart_write_string("Buffer: [");
+    for (size_t i = 0; buffer[i] != '\0'; i++) {
+        uart_write_char(buffer[i]);
+    }
+    uart_write_string("]\n");
+}
+
 void uart_write_int(int num) {
     char buffer[10];
     int i = 0;
@@ -412,6 +422,13 @@ void simple_printf(const char *format, ...) {
     va_end(args);
 }
 
+char uart_read_char_debug() {
+    char c = uart_read_char();
+    uart_write_string("Char read: ");
+    uart_write_char(c);
+    uart_write_string("\n");
+    return c;
+}
 
 void uart_prompt() {
     while (1) {
@@ -419,24 +436,37 @@ void uart_prompt() {
         size_t index = 0;
         char c;
 
-        while ((c = uart_read_char()) != '\0' && c != '\r' && index < BUFFER_SIZE - 1) {
-			uart_write_char(c);
-
-            if (c == 127 || c == '\b') {
-				if (index > 0) {
-					index--;
-					uart_write_string("\b \b");
-				}
-				if (c == '\r' || c == '\n' || c == '\0') 
-					uart_write_string("lol");
+        while ((c = uart_read_char_debug()) != '\n' && c != '\r' && index < BUFFER_SIZE - 1) {
+            if (c == 127) { // Backspace (DEL)
+                if (index > 0) {
+                    index--;
+                    uart_write_string("\b \b");
+                }
                 continue;
             }
+
             input_buffer[index++] = c;
-            uart_write_char(c);
         }
-		if (strcmp(input_buffer, "1\r") == 0) {
-			uart_write_string("0x");
-		}
-        uart_write_string("\n");
+
+        input_buffer[index] = '\0'; // Null-terminate la chaîne
+
+        // Debug : afficher le contenu du buffer
+        uart_write_string("Buffer: [");
+        uart_write_string(input_buffer);
+        uart_write_string("]\n");
+
+        // Trim les caractères de contrôle
+        while (index > 0 && (input_buffer[index - 1] == '\r' || input_buffer[index - 1] == '\n')) {
+            input_buffer[--index] = '\0';
+        }
+
+        // Comparer les commandes
+        if (strcmp(input_buffer, "1") == 0) {
+            uart_write_string("0x\n");
+        } else if (strcmp(input_buffer, "2") == 0) {
+            uart_write_string("0x\n");
+        } else {
+            uart_write_string("Unknown command.\n");
+        }
     }
 }
