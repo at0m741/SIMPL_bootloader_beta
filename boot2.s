@@ -77,7 +77,6 @@ _start:
 	bl      uart_write_string
 	ldr		x0, =save_registers_message
 	bl		uart_write_string
-	b		_main
 
 _relocate_stack:
 	ldr		x0, =STACK_BASE
@@ -137,12 +136,11 @@ _save_registers:
 	stp		x14, x15, [sp, #-16]!
 	stp		x16, x17, [sp, #-16]!
 	stp		x18, x19, [sp, #-16]!
-	stp		x19, x20, [sp, #-16]!
-	stp		x21, x22, [sp, #-16]!
-	stp		x23, x24, [sp, #-16]!
-	stp		x25, x26, [sp, #-16]!
-	stp		x27, x28, [sp, #-16]!
-	stp		x29, x30, [sp, #-16]!
+	stp		x20, x21, [sp, #-16]!
+	stp		x22, x23, [sp, #-16]!
+	stp		x24, x25, [sp, #-16]!
+	stp		x26, x27, [sp, #-16]!
+	stp		x28, x29, [sp, #-16]!
 	mov		x29, sp
 	ret
 
@@ -386,6 +384,7 @@ enable_mmu:
     
 	ldr     x0, =pagetable_level0
     msr     TTBR0_EL1, x0
+	orr		x0, x0, (1 << 0)
 	ldr     x0, =ttbr_message
 	bl      uart_write_string
 	dsb     sy
