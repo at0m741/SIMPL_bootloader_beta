@@ -393,7 +393,7 @@ enable_mmu:
 	/* Set ialluis to invalidate all instruction caches */
 
 	ic		iallu			/* invalidate all instruction caches */
-	dsb		nsh				/* ensure all previous instructions are completed */
+	dsb		sy				/* ensure all previous instructions are completed */
 	isb
 	ldr		x0, =insctruction_message
 	bl		uart_write_string
