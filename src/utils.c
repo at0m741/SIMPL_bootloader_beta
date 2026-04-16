@@ -64,6 +64,54 @@ long strtol(const char *nptr, char **endptr, int base) {
 	return result * sign;
 }
 
+int parse_u64(const char *text, uint64_t *value) {
+	uint64_t result = 0;
+	int base = 10;
+	int parsed_digit = 0;
+
+	if (!text || !value || *text == '\0') {
+		return -1;
+	}
+
+	if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+		base = 16;
+		text += 2;
+	}
+
+	if (*text == '\0') {
+		return -1;
+	}
+
+	while (*text != '\0') {
+		unsigned int digit;
+		char c = *text++;
+
+		if (c >= '0' && c <= '9') {
+			digit = (unsigned int)(c - '0');
+		} else if (c >= 'a' && c <= 'f') {
+			digit = (unsigned int)(c - 'a' + 10);
+		} else if (c >= 'A' && c <= 'F') {
+			digit = (unsigned int)(c - 'A' + 10);
+		} else {
+			return -1;
+		}
+
+		if (digit >= (unsigned int)base) {
+			return -1;
+		}
+
+		result = (result * (uint64_t)base) + (uint64_t)digit;
+		parsed_digit = 1;
+	}
+
+	if (!parsed_digit) {
+		return -1;
+	}
+
+	*value = result;
+	return 0;
+}
+
 void memzero(void *buffer, size_t size) {
 	unsigned char *cursor = (unsigned char *)buffer;
 

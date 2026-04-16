@@ -10,6 +10,7 @@ void boot_main(void) __attribute__((noreturn));
 void boot_panic(const char *message) __attribute__((noreturn));
 void boot_handle_exception(uint64_t esr, uint64_t elr, uint64_t far) __attribute__((noreturn));
 void boot_print_banner(void);
+void boot_print_version(void);
 void boot_print_status(void);
 void boot_memory_probe(void);
 

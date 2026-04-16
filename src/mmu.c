@@ -23,11 +23,7 @@
 #define MMU_L1_LOW_INDEX 0U
 #define MMU_L1_DRAM_INDEX 2U
 
-#define MMU_L1_REGION_SIZE (1ULL << 30)
 #define MMU_L2_BLOCK_SIZE (1ULL << 21)
-
-#define MMU_LOW_REGION_BASE 0x0000000000000000ULL
-#define MMU_DRAM_REGION_BASE 0x0000000080000000ULL
 
 __attribute__((aligned(MMU_PAGE_SIZE))) static uint64_t mmu_l0_table[MMU_TABLE_ENTRIES];
 __attribute__((aligned(MMU_PAGE_SIZE))) static uint64_t mmu_l1_table[MMU_TABLE_ENTRIES];
@@ -125,43 +121,71 @@ static uint64_t mmu_build_tcr_el1(void) {
 	return 16ULL | (1ULL << 8) | (1ULL << 10) | (3ULL << 12) | (1ULL << 23) | (2ULL << 32);
 }
 
+static int mmu_range_fits_window(uint64_t address, uint64_t size, uint64_t base) {
+	uint64_t end_address;
+
+	if (size == 0) {
+		return 0;
+	}
+
+	end_address = address + size - 1ULL;
+	if (end_address < address) {
+		return 0;
+	}
+
+	return address >= base && end_address < base + MMU_REGION_SIZE;
+}
+
 int mmu_init(void) {
 	uint64_t mair_el1 = MMU_MAIR_ATTR_NORMAL | (MMU_MAIR_ATTR_DEVICE << 8);
 	uint64_t sctlr_el1;
 
+	uart_write_string("[MMU]: Zeroing translation tables.\n");
 	memzero(mmu_l0_table, sizeof(mmu_l0_table));
 	memzero(mmu_l1_table, sizeof(mmu_l1_table));
 	memzero(mmu_l2_low, sizeof(mmu_l2_low));
 	memzero(mmu_l2_dram, sizeof(mmu_l2_dram));
 
+	uart_write_string("[MMU]: Linking L0/L1 table hierarchy.\n");
 	mmu_l0_table[MMU_L0_INDEX] = mmu_make_table_desc((uint64_t)mmu_l1_table);
 	mmu_l1_table[MMU_L1_LOW_INDEX] = mmu_make_table_desc((uint64_t)mmu_l2_low);
 	mmu_l1_table[MMU_L1_DRAM_INDEX] = mmu_make_table_desc((uint64_t)mmu_l2_dram);
 
+	uart_write_string("[MMU]: Populating low identity mapping.\n");
 	mmu_build_l2_identity_table(mmu_l2_low, MMU_LOW_REGION_BASE, 1);
+	uart_write_string("[MMU]: Populating DRAM identity mapping.\n");
 	mmu_build_l2_identity_table(mmu_l2_dram, MMU_DRAM_REGION_BASE, 0);
 
+	uart_write_string("[MMU]: Programming MAIR_EL1, TCR_EL1 and TTBRs.\n");
 	mmu_write_mair_el1(mair_el1);
 	mmu_write_tcr_el1(mmu_build_tcr_el1());
 	mmu_write_ttbr0_el1((uint64_t)mmu_l0_table);
 	mmu_write_ttbr1_el1(0);
 
+	uart_write_string("[MMU]: Invalidating TLBs and synchronizing state.\n");
 	mmu_dsb();
 	mmu_isb();
 	mmu_invalidate_tlb();
 	mmu_dsb();
 	mmu_isb();
 
+	uart_write_string("[MMU]: Enabling MMU and caches in SCTLR_EL1.\n");
 	sctlr_el1 = mmu_read_sctlr_el1();
 	sctlr_el1 |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
 	mmu_write_sctlr_el1(sctlr_el1);
 	mmu_isb();
 
+	uart_write_string("[MMU]: Verifying enable state.\n");
 	return mmu_is_enabled() ? 0 : -1;
 }
 
 int mmu_is_enabled(void) {
 	return (mmu_read_sctlr_el1() & 1U) != 0U;
+}
+
+int mmu_is_range_mapped(uint64_t address, uint64_t size) {
+	return mmu_range_fits_window(address, size, MMU_LOW_REGION_BASE) ||
+		mmu_range_fits_window(address, size, MMU_DRAM_REGION_BASE);
 }
 
 void mmu_dump_state(void) {
