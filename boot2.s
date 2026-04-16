@@ -59,24 +59,18 @@
 	
 
 _start:
-	bl		_init_uart
-	isb
-	bl		_save_registers
-
-	bl		uart_enable_interrupts
-	bl		gic_enable_uart_irq
-	bl		print_address
-	bl		_init_hw
-	ldr		x0, =uart_message_el1
-	bl		uart_write_string
 	bl		_relocate_stack
+	bl		_init_uart
 	ldr		x0, =stack
 	bl		uart_write_string
 	msr		daifset, 0b1111
 	ldr     x0, =interupt_disable_message
 	bl      uart_write_string
+	isb
+	bl		_save_registers
 	ldr		x0, =save_registers_message
 	bl		uart_write_string
+	b		_init_hw
 
 _relocate_stack:
 	ldr		x0, =STACK_BASE
@@ -92,9 +86,12 @@ _relocate_stack:
 	=> initialize the UART
 */
 _init_uart:
+	str		x30, [sp, #-16]!
 	bl		uart_init
 	ldr		x0, =uart_message_init
 	bl		uart_write_string
+	ldr		x30, [sp], #16
+	ret
 
 _init_hw:
 	ldr		x0, =4000000				/* load the timer frequency to 4 MHz */ 
@@ -103,7 +100,7 @@ _init_hw:
 	bl		uart_write_string
 	ldr		x0, =100000					/* load the timeout to 100 000 cycles */
 	msr		CNTP_TVAL_EL0, x0			/* set the timeout */
-	mov		x0, #1						/* enable the timer by setting the enable bit to 1 */
+	mov		x0, #3						/* enable timer, keep IRQ masked until a real handler exists */
 	msr		CNTP_CTL_EL0, x0			/* enable the timer */
 	ldr		x0, =timeout_message
 	bl		uart_write_string
@@ -112,7 +109,7 @@ _init_hw:
 	bl		_relocate_stack_dram		/* relocate the stack to DRAM to 0x80080000 */
 	ldr		x0, =relocate_drarm_message
 	bl		uart_write_string
-	bl		_main
+	b		_main
 /*
 	; Main function
 	; => get the register size
@@ -419,19 +416,13 @@ enable_mmu:
 
 	bl		clear_bss			/* clear the BSS section => 0x1000 bytes */
 	bl		check_pstate_mode	/* check the PSTATE mode */
-    msr		DAIFClr, 0b1111		/* reenable all interrupts */
-	ldr		x0, =interrupt_message
+	ldr		x0, =interrupt_masked_message
 	bl		uart_write_string
-	bl		print_address
 
-	bl		_relocate_stack_virtual	
-	ldr		x0, =relocate_virtual_message
-	bl		uart_write_string
-	
-	bl		enable_interrupts
 	bl		check_execution_mode
 
 	bl		uart_prompt
+	ret
 
 /* 
 	; Relocate the stack to the DRAM
@@ -526,6 +517,7 @@ uart_message_el3:			.asciz "[EL]: In EL3\n"
 uart_message_el2:			.asciz "[EL]: In EL2\n"
 uart_message_el1:			.asciz "[EL]: In EL1\n"
 interrupt_message:			.asciz "[INFO]: Interrupts enabled.\n"
+interrupt_masked_message:	.asciz "[INFO]: Interrupts masked; UART prompt uses polling mode.\n"
 interupt_disable_message:	.asciz "[INFO]: Interrupts disabled.\n"
 vbar_message:				.asciz "[INFO]: Vector base address set.\n"
 save_registers_message:		.asciz "[INFO]: Registers saved.\n"
