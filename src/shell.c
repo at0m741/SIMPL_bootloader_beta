@@ -38,6 +38,8 @@ static void shell_cmd_help(int argc, char **argv);
 static void shell_cmd_banner(int argc, char **argv);
 static void shell_cmd_version(int argc, char **argv);
 static void shell_cmd_status(int argc, char **argv);
+static void shell_cmd_regs(int argc, char **argv);
+static void shell_cmd_memmap(int argc, char **argv);
 static void shell_cmd_mmu(int argc, char **argv);
 static void shell_cmd_probe(int argc, char **argv);
 static void shell_cmd_clear(int argc, char **argv);
@@ -50,6 +52,8 @@ static const struct shell_command kShellCommands[] = {
 	{"banner", "banner", "print the default boot banner", shell_cmd_banner},
 	{"version", "version", "print build metadata", shell_cmd_version},
 	{"status", "status", "print execution level and MMU state", shell_cmd_status},
+	{"regs", "regs", "dump live CPU and EL1 system registers", shell_cmd_regs},
+	{"memmap", "memmap", "print the current logical memory map", shell_cmd_memmap},
 	{"mmu", "mmu", "dump MMU registers", shell_cmd_mmu},
 	{"probe", "probe", "write/read a DRAM probe word", shell_cmd_probe},
 	{"clear", "clear", "clear the terminal", shell_cmd_clear},
@@ -251,11 +255,33 @@ static void shell_cmd_status(int argc, char **argv) {
 	boot_print_status();
 }
 
-static void shell_cmd_mmu(int argc, char **argv) {
+static void shell_cmd_regs(int argc, char **argv) {
 	(void)argv;
 
 	if (argc != 1) {
 		shell_print_usage(&kShellCommands[4]);
+		return;
+	}
+
+	boot_dump_registers();
+}
+
+static void shell_cmd_memmap(int argc, char **argv) {
+	(void)argv;
+
+	if (argc != 1) {
+		shell_print_usage(&kShellCommands[5]);
+		return;
+	}
+
+	boot_print_memmap();
+}
+
+static void shell_cmd_mmu(int argc, char **argv) {
+	(void)argv;
+
+	if (argc != 1) {
+		shell_print_usage(&kShellCommands[6]);
 		return;
 	}
 
@@ -266,7 +292,7 @@ static void shell_cmd_probe(int argc, char **argv) {
 	(void)argv;
 
 	if (argc != 1) {
-		shell_print_usage(&kShellCommands[5]);
+		shell_print_usage(&kShellCommands[7]);
 		return;
 	}
 
@@ -277,7 +303,7 @@ static void shell_cmd_clear(int argc, char **argv) {
 	(void)argv;
 
 	if (argc != 1) {
-		shell_print_usage(&kShellCommands[6]);
+		shell_print_usage(&kShellCommands[8]);
 		return;
 	}
 
@@ -290,7 +316,7 @@ static void shell_cmd_md(int argc, char **argv) {
 	unsigned int word_index;
 
 	if (argc != 2 && argc != 3) {
-		shell_print_usage(&kShellCommands[7]);
+		shell_print_usage(&kShellCommands[9]);
 		return;
 	}
 
@@ -331,7 +357,7 @@ static void shell_cmd_mw(int argc, char **argv) {
 	volatile uint32_t *word;
 
 	if (argc != 3) {
-		shell_print_usage(&kShellCommands[8]);
+		shell_print_usage(&kShellCommands[10]);
 		return;
 	}
 
@@ -365,7 +391,7 @@ static void shell_cmd_fill(int argc, char **argv) {
 	unsigned int index;
 
 	if (argc != 4) {
-		shell_print_usage(&kShellCommands[9]);
+		shell_print_usage(&kShellCommands[11]);
 		return;
 	}
 

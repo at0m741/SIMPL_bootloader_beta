@@ -88,9 +88,10 @@ exception_vectors:
 	.endr
 
 default_exception:
-	stp		x0, x1, [sp, #-16]!
-	stp		x2, x30, [sp, #-16]!
+	msr		daifset, #0xf
 	mrs		x0, ESR_EL1
 	mrs		x1, ELR_EL1
 	mrs		x2, FAR_EL1
+	mrs		x3, SPSR_EL1
+	mov		x4, sp
 	bl		boot_handle_exception
